@@ -18,16 +18,17 @@ package body skiplist is
    end random_level;
    ---------------------------------------------------------------------------------
    procedure free is new ada.unchecked_deallocation(object => node_t, name => node_a);
-   procedure free is new ada.unchecked_deallocation(object => nodes, name => nodes_a);
+   procedure free is new ada.unchecked_deallocation(object => nodes_t, name => nodes_a);
    ---------------------------------------------------------------------------------
    procedure initialize (l : in out list_t) is
    begin
       randomizer.reset(g);
       l.header := new node_t;
       l.header.v := no_value;
-      l.header.forward := new nodes(1..level);
+      l.header.forward := new nodes_t(1 .. level);
       l.header.forward.all := (others => null);
       l.list_level := 1;
+      l.size := 0;
    end initialize;
 
    procedure finalize (l : in out list_t) is
@@ -77,12 +78,13 @@ package body skiplist is
       x := new node_t;
       x.k := k;
       x.v := v;
-      x.forward := new nodes(1 .. new_level);
+      x.forward := new nodes_t(1 .. new_level);
       for j in 1..new_level loop
 	 x.forward(j) := update(j).forward(j);
 	 update(j).forward(j) := x;
       end loop;
       r :=  true;
+      l.size := l.size + 1;
    end insert;
 
    ---------------------------------------------------------------------------------
@@ -111,6 +113,7 @@ package body skiplist is
 	    l.list_level := l.list_level - 1;
 	 end loop;
 	 r := true;
+	 l.size := l.size - 1;
       end if;
    end remove;
    ---------------------------------------------------------------------------------
@@ -129,6 +132,11 @@ package body skiplist is
       if x.k = k then return x.v; end if;
       return no_value;
    end search;
+   ---------------------------------------------------------------------------------
+   function size ( l : list_t) return integer is 
+   begin
+      return l.size;
+   end size;
    ---------------------------------------------------------------------------------
    procedure write(stream : not null access ada.streams.root_stream_type'class; item : list_t) is
       x : node_a;
