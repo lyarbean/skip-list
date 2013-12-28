@@ -15,10 +15,11 @@ package Skiplist is
    type Object is new Ada.Finalization.Limited_Controlled with private;
    procedure Insert
       (o : in out Object; k : Key_Type; v : Value_Type; r : out Boolean);
-   procedure Remove (o : in out Object; k : Key_Type; r : out  Boolean);
+   procedure Remove (o : in out Object; k : Key_Type; v : out Value_Type);
    function Search (o : Object; k : Key_Type) return Value_Type;
    function Size (o : Object) return Integer;
-
+   procedure Put (stream : not null access Ada.Streams.Root_Stream_Type'Class;
+      item : Object);
 private
    type Node_Type;
    type Node_Access is access Node_Type;

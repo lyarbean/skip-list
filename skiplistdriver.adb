@@ -1,34 +1,43 @@
-with skiplist;
-with ada.streams.stream_io;
-with ada.text_io.text_streams;
-use ada.text_io;
+with Skiplist;
+with Ada.Streams.Stream_IO;
+with Ada.Text_IO.Text_Streams;
+use Ada.Text_IO;
 procedure skiplistdriver is
-   std_out : access ada.streams.root_stream_type := ada.text_io.text_streams.stream(standard_output);
-   type key_t is new integer;
-   procedure write_int(stream : not null access ada.streams.root_stream_type'class; item : key_t);
-   for key_t'write use write_int;
-   procedure write_int(stream : not null access ada.streams.root_stream_type'class; item : key_t) is
+   std_out : access Ada.Streams.Root_Stream_Type
+   := Text_Streams.Stream (Standard_Output);
+   type Key_T is new Integer;
+   procedure Write_Int
+      (stream : not null access Ada.Streams.Root_Stream_Type'Class;
+      item : Key_T);
+   for Key_T'Write use Write_Int;
+   procedure Write_Int
+      (stream : not null access Ada.Streams.Root_Stream_Type'Class;
+      item : Key_T) is
    begin
-      string'write(stream, item'img);
-   end write_int;
+      String'Write (stream, item'Img);
+   end Write_Int;
 
-   package ic_skiplist is new skiplist(
-      key => key_t,
-      value => key_t,
-      no_value => -1,
-      level => 9);
-   use ic_skiplist;
-   the_skiplist : list_t;
-   r : boolean;
+   package IC_Skiplist is new Skiplist (
+   Key_Type => Key_T,
+   Value_Type => Key_T,
+   No_Value => -1,
+   Level => 9);
+   the_skiplist : IC_Skiplist.Object;
+   r : Boolean;
+   v : Key_T;
 begin
-   for j in key_t range 1..2**10 loop
-      the_skiplist.insert(j, (j-2**9)**2,r);
+   for j in Key_T range 1 .. 2 ** 10 loop
+      the_skiplist.Insert (j, (j - 2 ** 9) ** 2, r);
    end loop;
-   list_t'write(std_out,the_skiplist);
-   new_line;
-   for j in key_t range 2**6..2**9 loop
-      the_skiplist.remove(j,r);
+   IC_Skiplist.Put (std_out, the_skiplist);
+   New_Line;
+   Ada.Text_IO.Put_Line ("-----------------");
+   for j in Key_T range 2 ** 6 .. 2 ** 9 loop
+      the_skiplist.Remove (j, v);
+      Ada.Text_IO.Put (v'Img);
    end loop;
-   list_t'write(std_out,the_skiplist);
-   new_line;
+   New_Line;
+   Ada.Text_IO.Put_Line ("-----------------");
+   IC_Skiplist.Put (std_out, the_skiplist);
+   New_Line;
 end skiplistdriver;

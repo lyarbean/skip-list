@@ -4,10 +4,6 @@ with Ada.Unchecked_Deallocation;
 with Ada.Streams;
 with Ada.Text_IO;
 package body Skiplist is
-   procedure Write
-      (stream : not null access Ada.Streams.Root_Stream_Type'Class;
-      item : Object);
-   for Object'Write use Write;
    type Node_Access_Array is array (Positive range <>) of Node_Access;
    type Nodes_Access is access Node_Access_Array;
    type Node_Type is record
@@ -107,7 +103,7 @@ package body Skiplist is
       o.Size := o.Size + 1;
    end Insert;
 
-   procedure Remove (o : in out Object; k : Key_Type; r : out Boolean) is
+   procedure Remove (o : in out Object; k : Key_Type; v : out Value_Type) is
       x : Node_Access;
       update : Node_Access_Array (1 .. Level) := (others => null);
    begin
@@ -121,19 +117,19 @@ package body Skiplist is
          update (j) := x;
       end loop;
       x := x.Forward (1);
-      r := False;
+      v := No_Value;
       if x.K = k then
          for j in 1 .. o.Level loop
             exit when update (j).Forward (j) /= x;
             update (j).Forward (j) := x.Forward (j);
          end loop;
-         Free (x.Forward);
-         Free (x);
          while o.Level > 0 and then o.Header.Forward (o.Level) = o.Header loop
             o.Level := o.Level - 1;
          end loop;
-         r := True;
          o.Size := o.Size - 1;
+         v := x.V;
+         Free (x.Forward);
+         Free (x);
       end if;
    end Remove;
 
@@ -160,8 +156,7 @@ package body Skiplist is
       return o.Size;
    end Size;
 
-   procedure Write
-      (stream : not null access Ada.Streams.Root_Stream_Type'class;
+   procedure Put (stream : not null access Ada.Streams.Root_Stream_Type'class;
       item : Object) is
       x : Node_Access;
    begin
@@ -178,5 +173,5 @@ package body Skiplist is
             x := x.Forward (j);
          end loop;
       end loop;
-   end Write;
+   end Put;
 end Skiplist;
