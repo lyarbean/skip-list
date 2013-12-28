@@ -1,40 +1,32 @@
-pragma ada_2012;
-with ada.streams;
-with ada.finalization;
+pragma License (GPL);
+pragma Ada_2012;
+with Ada.Streams;
+with Ada.Finalization;
 generic
-   type key is private;
-   type value is private;
-   no_value : value;
-   level : positive;
-   with function "=" (l,r : key) return boolean is <>;
-   with function ">" (l,r : key) return boolean is <>;
-   with function "<" (l,r : key) return boolean is <>;
-   with function ">=" (l,r : key) return boolean is <>;
-package skiplist is
-   pragma elaborate_body;
-   type list_t is new ada.finalization.limited_controlled with private;
-   procedure insert(l : in out list_t; k : in key; v : in value; r : out boolean);
-   procedure remove(l : in out list_t; k : in key; r : out  boolean);
-   function search(l : list_t; k : key) return value;
-   function size(l : list_t) return integer;
-   procedure write(stream : not null access ada.streams.root_stream_type'class; item : list_t);
-   for list_t'write use write;
+   type Key_Type is private;
+   type Value_Type is private;
+   No_Value : Value_Type;
+   Level : Positive;
+   with function "=" (l, r : Key_Type) return Boolean is <>;
+   with function ">" (l, r : Key_Type) return Boolean is <>;
+   with function "<" (l, r : Key_Type) return Boolean is <>;
+package Skiplist is
+   pragma Elaborate_Body;
+   type Object is new Ada.Finalization.Limited_Controlled with private;
+   procedure Insert
+      (o : in out Object; k : Key_Type; v : Value_Type; r : out Boolean);
+   procedure Remove (o : in out Object; k : Key_Type; r : out  Boolean);
+   function Search (o : Object; k : Key_Type) return Value_Type;
+   function Size (o : Object) return Integer;
 
 private
-   type node_t;
-   type node_a is access node_t;
-   type nodes_t is array (positive range <>) of node_a;
-   type nodes_a is access nodes_t;
-   type node_t is record
-      k : key;
-      v : value;
-      forward : nodes_a;
+   type Node_Type;
+   type Node_Access is access Node_Type;
+   type Object is new Ada.Finalization.Limited_Controlled with record
+      Header : Node_Access;
+      Size   : Integer;
+      Level  : Integer;
    end record;
-   type list_t is new ada.finalization.limited_controlled with record
-      header	 : node_a;
-      size	 : integer;
-      list_level : integer;
-   end record;
-   overriding procedure initialize ( l : in out list_t);
-   overriding procedure finalize (l : in out list_t);
-end skiplist;
+   overriding procedure Initialize (o : in out Object);
+   overriding procedure Finalize   (o : in out Object);
+end Skiplist;

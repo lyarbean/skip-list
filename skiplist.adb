@@ -1,160 +1,182 @@
-with ada.numerics.discrete_random;
-with ada.unchecked_deallocation;
-with ada.streams;
-package body skiplist is
-   subtype level_t is integer range 1..level;
-   package randomizer is new ada.numerics.discrete_random (level_t);
-   g : randomizer.generator;
-   update : array (1 .. level) of node_a := (others => null);
-   ---------------------------------------------------------------------------------
-   function random_level return integer is
-      l : integer := 1 ;
+pragma License (GPL);
+with Ada.Numerics.Discrete_Random;
+with Ada.Unchecked_Deallocation;
+with Ada.Streams;
+with Ada.Text_IO;
+package body Skiplist is
+   procedure Write
+      (stream : not null access Ada.Streams.Root_Stream_Type'Class;
+      item : Object);
+   for Object'Write use Write;
+   type Node_Access_Array is array (Positive range <>) of Node_Access;
+   type Nodes_Access is access Node_Access_Array;
+   type Node_Type is record
+      K : Key_Type;
+      V : Value_Type;
+      Forward : Nodes_Access;
+   end record;
+
+   subtype Level_Type is Integer range 1 .. Level;
+   package Randomizer is new Ada.Numerics.Discrete_Random (Level_Type);
+   g : Randomizer.Generator;
+   function Random_Level return Integer;
+   function Random_Level return Integer is
+      l : Integer := 1;
    begin
-      while randomizer.random(g)  < level / 2 loop
-	 exit when l >= level;
-	 l := l + 1;
+      while Randomizer.Random (g) < Level / 2 loop
+         exit when l >= Level;
+         l := l + 1;
       end loop;
       return l;
-   end random_level;
-   ---------------------------------------------------------------------------------
-   procedure free is new ada.unchecked_deallocation(object => node_t, name => node_a);
-   procedure free is new ada.unchecked_deallocation(object => nodes_t, name => nodes_a);
-   ---------------------------------------------------------------------------------
-   procedure initialize (l : in out list_t) is
-   begin
-      randomizer.reset(g);
-      l.header := new node_t;
-      l.header.v := no_value;
-      l.header.forward := new nodes_t(1 .. level);
-      l.header.forward.all := (others => null);
-      l.list_level := 1;
-      l.size := 0;
-   end initialize;
+   end Random_Level;
 
-   procedure finalize (l : in out list_t) is
-      x, y : node_a;
+   procedure Free is new Ada.Unchecked_Deallocation (Node_Type, Node_Access);
+   procedure Free is
+      new Ada.Unchecked_Deallocation (Node_Access_Array, Nodes_Access);
+
+   procedure Initialize (o : in out Object) is
    begin
-      x := l.header.forward(1);
+      Randomizer.Reset (g);
+      o.Header             := new Node_Type;
+      o.Header.V           := No_Value;
+      o.Header.Forward     := new Node_Access_Array (1 .. Level);
+      o.Header.Forward.all := (others => null);
+      o.Level              := 1;
+      o.Size               := 0;
+   end Initialize;
+
+   procedure Finalize (o : in out Object) is
+      x, y : Node_Access;
+   begin
+      x := o.Header.Forward (1);
       while x /= null loop
-	 y := x.forward(1);
-	 if x.forward /= null then
-	    free(x.forward);
-	 end if;
-	 free(x);
-	 x := y;
+         y := x.Forward (1);
+         if x.Forward /= null then
+            Free (x.Forward);
+         end if;
+         Free (x);
+         x := y;
       end loop;
-      free(l.header.forward);
-      free(l.header);
-   end finalize;
-   ---------------------------------------------------------------------------------
-   procedure insert(l : in out list_t; k : in key; v : in value; r : out boolean) is
-      x : node_a;
-      new_level : integer;
+      Free (o.Header.Forward);
+      Free (o.Header);
+   end Finalize;
+
+   procedure Insert
+      (o : in out Object; k : Key_Type; v : Value_Type; r : out Boolean) is
+      x : Node_Access;
+      new_level : Integer;
+      update : Node_Access_Array (1 .. Level) := (others => null);
    begin
-      r := false;
-      x := l.header;
+      r := False;
+      x := o.Header;
       if x = null then
-	 raise program_error;
+         raise Program_Error;
       end if;
 
-      for j in reverse 1 .. l.list_level loop
-	 loop
-	    exit when x.forward(j) = null;
-	    exit when x.forward(j).k >= k;
-	    x := x.forward(j);
-	 end loop;
-	 update(j) := x;
+      for j in reverse 1 .. o.Level loop
+         loop
+            exit when x.Forward (j) = null;
+            exit when not (x.Forward (j).K < k);
+            x := x.Forward (j);
+         end loop;
+         update (j) := x;
       end loop;
 
-      x := x.forward(1);
-      if x /= null and then x.k = k then r := true; return; end if; -- fixme update x.v := v
-
-      new_level := random_level;
-      if new_level > l.list_level then
-	 update(l.list_level + 1 .. new_level) := (others => l.header);
-	 l.list_level := new_level;
+      x := x.Forward (1);
+      if x /= null and then x.K = k then
+         r := True;
+         return;
       end if;
-    
-      x := new node_t;
-      x.k := k;
-      x.v := v;
-      x.forward := new nodes_t(1 .. new_level);
-      for j in 1..new_level loop
-	 x.forward(j) := update(j).forward(j);
-	 update(j).forward(j) := x;
-      end loop;
-      r :=  true;
-      l.size := l.size + 1;
-   end insert;
-
-   ---------------------------------------------------------------------------------
-   procedure remove(l : in out list_t; k : in key ; r : out boolean) is
-      x : node_a;
-   begin
-      x := l.header;
-      for j in reverse 1 .. l.list_level loop
-	 loop
-	    exit when x.forward(j) = null;
-	    exit when x.forward(j).k >= k;
-	    x := x.forward(j);
-	 end loop;
-	 update(j) := x;
-      end loop;
-      x := x.forward(1);
-      r := false;
-      if x.k = k then
-	 for j in 1 .. l.list_level loop
-	    exit when update(j).forward(j) /= x;
-	    update(j).forward(j) := x.forward(j);
-	 end loop;
-	 free(x.forward);
-	 free(x);
-	 while l.list_level > 0 and then l.header.forward(l.list_level) = l.header loop
-	    l.list_level := l.list_level - 1;
-	 end loop;
-	 r := true;
-	 l.size := l.size - 1;
+      --  fixme update x.v := v
+      new_level := Random_Level;
+      if new_level > o.Level then
+         update (o.Level + 1 .. new_level) := (others => o.Header);
+         o.Level := new_level;
       end if;
-   end remove;
-   ---------------------------------------------------------------------------------
-   function search(l : list_t; k : key) return value is
-      x : node_a;
-   begin
-      x := l.header;
-      for j in reverse 1 .. l.list_level loop
-	 loop
-	    exit when x.forward(j) = null;
-	    exit when x.forward(j).k >= k;
-	    x := x.forward(j);
-	 end loop;
+
+      --  Insert
+      x := new Node_Type;
+      x.K := k;
+      x.V := v;
+      x.Forward := new Node_Access_Array (1 .. new_level);
+      for j in 1 .. new_level loop
+         x.Forward (j) := update (j).Forward (j);
+         update (j).Forward (j) := x;
       end loop;
-      x := x.forward(1);
-      if x.k = k then return x.v; end if;
-      return no_value;
-   end search;
-   ---------------------------------------------------------------------------------
-   function size ( l : list_t) return integer is 
+      r :=  True;
+      o.Size := o.Size + 1;
+   end Insert;
+
+   procedure Remove (o : in out Object; k : Key_Type; r : out Boolean) is
+      x : Node_Access;
+      update : Node_Access_Array (1 .. Level) := (others => null);
    begin
-      return l.size;
-   end size;
-   ---------------------------------------------------------------------------------
-   procedure write(stream : not null access ada.streams.root_stream_type'class; item : list_t) is
-      x : node_a;
-   begin
-      for j in reverse 1 .. item.list_level loop
-	 x := item.header.forward(j);
-	 string'write(stream, ascii.lf & "-- level " & j'img & ascii.lf);
-	 loop
-	    exit when x = null;
-	       string'write(stream, "[");
-	       key'write(stream, x.k);
-	       string'write(stream, " :");
-	       value'write(stream, x.v);
-	       string'write(stream, " ] ");
-	    x := x.forward(j);
-	 end loop;
+      x := o.Header;
+      for j in reverse 1 .. o.Level loop
+         loop
+            exit when x.Forward (j) = null;
+            exit when not (x.Forward (j).K < k);
+            x := x.Forward (j);
+         end loop;
+         update (j) := x;
       end loop;
-   end write;
-   ---------------------------------------------------------------------------------
-   ---------------------------------------------------------------------------------
-end skiplist;
+      x := x.Forward (1);
+      r := False;
+      if x.K = k then
+         for j in 1 .. o.Level loop
+            exit when update (j).Forward (j) /= x;
+            update (j).Forward (j) := x.Forward (j);
+         end loop;
+         Free (x.Forward);
+         Free (x);
+         while o.Level > 0 and then o.Header.Forward (o.Level) = o.Header loop
+            o.Level := o.Level - 1;
+         end loop;
+         r := True;
+         o.Size := o.Size - 1;
+      end if;
+   end Remove;
+
+   function Search (o : Object; k : Key_Type) return Value_Type is
+      x : Node_Access;
+   begin
+      x := o.Header;
+      for j in reverse 1 .. o.Level loop
+         loop
+            exit when x.Forward (j) = null;
+            exit when not (x.Forward (j).K < k);
+            x := x.Forward (j);
+         end loop;
+      end loop;
+      x := x.Forward (1);
+      if x.K = k then
+         return x.V;
+      end if;
+      return No_Value;
+   end Search;
+
+   function Size (o : Object) return Integer is
+   begin
+      return o.Size;
+   end Size;
+
+   procedure Write
+      (stream : not null access Ada.Streams.Root_Stream_Type'class;
+      item : Object) is
+      x : Node_Access;
+   begin
+      for j in reverse 1 .. item.Level loop
+         x := item.Header.Forward (j);
+         String'Write (stream, ASCII.LF & "-- level " & j'Img & ASCII.LF);
+         loop
+            exit when x = null;
+            String'Write (stream, "[");
+            Key_Type'Write (stream, x.K);
+            String'Write (stream, " :");
+            Value_Type'Write (stream, x.V);
+            String'Write (stream, " ] ");
+            x := x.Forward (j);
+         end loop;
+      end loop;
+   end Write;
+end Skiplist;
