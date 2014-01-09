@@ -20,16 +20,17 @@ procedure skiplistdriver is
    package IC_Skiplist is new Skiplist (
    Key_Type => Key_T,
    Value_Type => Key_T,
-   No_Value => -1,
+   Null_Value => -1,
    Level => 9);
    the_skiplist : IC_Skiplist.Object;
    r : Boolean;
    v : Key_T;
 begin
+   IC_Skiplist.Put (std_out, the_skiplist);
    for j in Key_T range 1 .. 2 ** 10 loop
       the_skiplist.Insert (j, (j - 2 ** 9) ** 2, r);
    end loop;
-   IC_Skiplist.Put (std_out, the_skiplist);
+   IC_Skiplist.Put (std_out, the_skiplist);  --  Size : 2 ** 10 := 1024
    New_Line;
    Ada.Text_IO.Put_Line ("-----------------");
    for j in Key_T range 2 ** 6 .. 2 ** 9 loop
@@ -38,6 +39,6 @@ begin
    end loop;
    New_Line;
    Ada.Text_IO.Put_Line ("-----------------");
-   IC_Skiplist.Put (std_out, the_skiplist);
+   IC_Skiplist.Put (std_out, the_skiplist);  --  Size : 1024 - 512 + 63 := 575
    New_Line;
 end skiplistdriver;
