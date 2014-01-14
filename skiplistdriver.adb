@@ -1,44 +1,28 @@
-with Skiplist;
-with Ada.Streams.Stream_IO;
-with Ada.Text_IO.Text_Streams;
-use Ada.Text_IO;
+Pragma Ada_2012;
+with Skip_List;
+with Ada.Text_IO;
 procedure skiplistdriver is
-   std_out : access Ada.Streams.Root_Stream_Type
-   := Text_Streams.Stream (Standard_Output);
-   type Key_T is new Integer;
-   procedure Write_Int
-      (stream : not null access Ada.Streams.Root_Stream_Type'Class;
-      item : Key_T);
-   for Key_T'Write use Write_Int;
-   procedure Write_Int
-      (stream : not null access Ada.Streams.Root_Stream_Type'Class;
-      item : Key_T) is
-   begin
-      String'Write (stream, item'Img);
-   end Write_Int;
 
-   package IC_Skiplist is new Skiplist (
-   Key_Type => Key_T,
-   Value_Type => Key_T,
-   Null_Value => -1,
-   Level => 9);
-   the_skiplist : IC_Skiplist.Object;
-   r : Boolean;
-   v : Key_T;
+   type Element is
+      record
+        K, V : Integer;
+      end record;
+
+   function Compare (Left, Right : Element) return Integer;
+   function Compare (Left, Right : Element) return Integer is
+   begin
+      return Left.K - Right.K;
+   end Compare;
+
+   package SL is new Skip_List (Element);
+   use SL;
+   skiplist : List (9);
+
+   r : Cursor;
 begin
-   IC_Skiplist.Put (std_out, the_skiplist);
-   for j in Key_T range 1 .. 2 ** 10 loop
-      the_skiplist.Insert (j, (j - 2 ** 9) ** 2, r);
+   for j in 1 .. 2 ** 10 loop
+      skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
    end loop;
-   IC_Skiplist.Put (std_out, the_skiplist);  --  Size : 2 ** 10 := 1024
-   New_Line;
-   Ada.Text_IO.Put_Line ("-----------------");
-   for j in Key_T range 2 ** 6 .. 2 ** 9 loop
-      the_skiplist.Remove (j, v);
-      Ada.Text_IO.Put (v'Img);
-   end loop;
-   New_Line;
-   Ada.Text_IO.Put_Line ("-----------------");
-   IC_Skiplist.Put (std_out, the_skiplist);  --  Size : 1024 - 512 + 63 := 575
-   New_Line;
+   Ada.Text_IO.Put_Line ("Done");
+   Ada.Text_IO.Flush;
 end skiplistdriver;
