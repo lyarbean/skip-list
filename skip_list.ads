@@ -20,7 +20,7 @@ package Skip_List is
 
    Empty_List : constant List;
 
-   No_Element : constant Cursor;
+   No_Cursor : constant Cursor;
 
    function Has_Element (Position : Cursor) return Boolean;
 
@@ -63,10 +63,12 @@ package Skip_List is
    function Constant_Reference
      (Container : aliased List;
       Position  : Cursor) return Constant_Reference_Type;
+   pragma Inline (Constant_Reference);
 
    function Reference
      (Container : aliased in out List;
       Position  : Cursor) return Reference_Type;
+   pragma Inline (Reference);
 
    procedure Insert (Container : in out List; New_Item : Element_Type);
 
@@ -156,7 +158,7 @@ private
       (Element : not null access Element_Type) is null record;
 
    Empty_List : constant List := (Limited_Controlled with 1, null, 0, 0, 0, 0);
-   No_Element : constant Cursor := Cursor'(null, null);
+   No_Cursor  : constant Cursor := Cursor'(null, null);
 
    type Iterator is new Limited_Controlled
       and List_Iterator_Interfaces.Forward_Iterator with
@@ -165,7 +167,7 @@ private
          Node      : Node_Access;
       end record;
 
-   overriding procedure Finalize (Object : in out Iterator);
+   --  overriding procedure Finalize (Object : in out Iterator);
    overriding function First (Object : Iterator) return Cursor;
    overriding function Next
       (Object : Iterator; Position : Cursor) return Cursor;
