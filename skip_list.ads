@@ -6,11 +6,6 @@ private with Ada.Finalization;
 
 generic
    type Element_Type is private;
-
-   --  Level Limit
-   --  l = r => = 0
-   --  l > r => > 0
-   --  l < r => < 0
    with function Compare (Left, Right : Element_Type) return Integer is <>;
 
 package Skip_List is
@@ -34,12 +29,11 @@ package Skip_List is
 
    function "=" (Left, Right : List) return Boolean;
 
-   function Length (Container : List) return Positive;
+   function Length (Container : List) return Natural;
 
    function Is_Empty (Container : List) return Boolean;
-   
-   --  Finalize ...
-   --  procedure Clear (Container : in out List);
+
+   procedure Clear (Container : in out List);
 
    function Element (Position : Cursor) return Element_Type;
 
@@ -55,17 +49,16 @@ package Skip_List is
    procedure Update_Element
      (Container : in out List;
       Position  : Cursor;
-      Process   : not null access procedure (Element : in out Element_Type)) is null;
+      Process   : not null access procedure
+                  (Element : in out Element_Type)) is null;
 
    type Constant_Reference_Type
       (Element : not null access constant Element_Type) is private
-   with
-      Implicit_Dereference => Element;
+   with Implicit_Dereference => Element;
 
    type Reference_Type
      (Element : not null access Element_Type) is private
-   with
-      Implicit_Dereference => Element;
+   with Implicit_Dereference => Element;
 
    function Constant_Reference
      (Container : aliased List;
@@ -78,7 +71,9 @@ package Skip_List is
    procedure Insert (Container : in out List; New_Item : Element_Type);
 
    procedure Insert
-      (Container : in out List; New_Item : Element_Type; Position : out Cursor);
+      (Container : in out List;
+       New_Item  : Element_Type;
+       Position  : out Cursor);
 
    procedure Delete (Container : in out List; Position : in out Cursor);
 
