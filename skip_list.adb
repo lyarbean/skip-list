@@ -1,6 +1,6 @@
 pragma License (GPL);
 pragma Ada_2012;
-with Ada.Numerics.Discrete_Random;
+with Ada.Numerics.Float_Random;
 with Ada.Unchecked_Deallocation;
 with Ada.Text_IO;
 package body Skip_List is
@@ -8,30 +8,16 @@ package body Skip_List is
    procedure Free is
       new Ada.Unchecked_Deallocation (Node_Array, Node_Array_Access);
 
-   type Level_Type is mod 2 ** 64;
-   package Level_Random is new Ada.Numerics.Discrete_Random (Level_Type);
-
-   g : Level_Random.Generator;
-
-   function Random_Level (Container : List) return Integer with Inline;
-   function Random_Level (Container : List) return Integer is
-      l : Integer := 1;
-   begin
-      while Level_Random.Random (g) < 2 ** 32 loop
-         exit when l >= Container.Level;
-         l := l + 1;
-      end loop;
-      return l;
-   end Random_Level;
+   package NFR renames Ada.Numerics.Float_Random;
+   G : NFR.Generator;
 
    procedure Initialize (Container : in out List) is
    begin
-      Level_Random.Reset (g);
+      NFR.Reset (G, Container.Level);
       Container.Header        := null;
       Container.Current_Level := 0;
       Container.Length        := 0;
       Container.Busy          := 0;
-      Container.Lock          := 0;
    end Initialize;
 
    procedure Finalize (Container : in out List) is
@@ -67,13 +53,23 @@ package body Skip_List is
    end Is_Empty;
 
    procedure Clear (Container : in out List) is
-      x, y : Node_Access := Container.Header;
+      X, Y : Node_Access := Container.Header;
    begin
-      while x /= null loop
-         y := x.Forward (1);
-         Free (x.Forward);
-         Free (x);
-         x := y;
+      if Container.Length = 0 then
+         pragma Assert (Container.Header = null);
+         pragma Assert (Container.Tail = null);
+         pragma Assert (Container.Busy = 0);
+         return;
+      end if;
+      if Container.Busy > 0 then
+         raise Program_Error with "Attemp to clear while list is busy";
+      end if;
+      while X /= null loop
+         Y := X.Forward (1);
+         pragma Assert (X.Lock = 0);
+         Free (X.Forward);
+         Free (X);
+         X := Y;
       end loop;
       Initialize (Container);
    end Clear;
@@ -86,6 +82,18 @@ package body Skip_List is
       return Position.Node.Element;
    end Element;
 
+   --  Replace
+   --  Query
+   --  Update
+
+
+   -----------------
+   --  Reference  --
+   -----------------
+
+   --  FIXME References are allocated on secondary stack, but not got freed
+   --        It seems like a bug in GNAT
+
    function Constant_Reference
      (Container : aliased List;
       Position  : Cursor) return Constant_Reference_Type is
@@ -94,7 +102,11 @@ package body Skip_List is
          or Position.Node = null then
          raise Program_Error with "Bad Cursor on Constant_Reference";
       end if;
-      return Constant_Reference_Type'(Element => Position.Node.Element'Access);
+      return R : Constant_Reference_Type :=
+         (Element => Position.Node.Element'Access,
+         Control => (Controlled with Position.Node)) do
+         Position.Node.Lock := Position.Node.Lock + 1;
+      end return;
    end Constant_Reference;
 
    function Reference
@@ -105,11 +117,16 @@ package body Skip_List is
          or Position.Node = null then
          raise Program_Error with "Bad Cursor on Reference";
       end if;
-      return Reference_Type'(Element => Position.Node.Element'Access);
+      return R : Reference_Type :=
+         (Element => Position.Node.Element'Access,
+         Control => (Controlled with position.Node)) do
+         Position.Node.Lock := Position.Node.Lock + 1;
+      end return;
    end Reference;
 
    procedure Insert (Container : in out List; New_Item : Element_Type) is
       Pos : Cursor;
+      pragma Unreferenced (Pos);
    begin
       Insert (Container, New_Item, Pos);
    end Insert;
@@ -123,9 +140,10 @@ package body Skip_List is
             raise Program_Error
             with "Container.Length /= 0" & Container.Length'Img;
          end if;
-         Container.Header := new Node_Type'(null, New_Item);
-         Container.Header.Forward := new Node_Array (1 .. Container.Level);
+         Container.Header := new Node_Type'(null, New_Item, 0);
+         Container.Header.Forward := new Node_Array (0 .. Container.Level);
          Container.Header.Forward.all := (others => null);
+         Container.Tail := Container.Header;
          Container.Length := 1;
          Container.Current_Level := 1;
          Position := Container.First;
@@ -133,106 +151,127 @@ package body Skip_List is
       end if;
 
       declare
-         x : Node_Access := Container.Header;
-         new_level : Integer;
-         update : Node_Array (1 .. Container.Level) := (others => null);
+         X, Y : Node_Access := Container.Header;
+         New_Level : Integer := 1;
+         Update : Node_Array (1 .. Container.Level) := (others => null);
       begin
+         Random_Level :
+         while NFR.Random (G) < 0.5 loop
+            exit Random_Level when New_Level >= Container.Level;
+            New_Level := New_Level + 1;
+         end loop Random_Level;
+
          for j in reverse 1 .. Container.Current_Level loop
             loop
-               exit when x.Forward (j) = null;
-               exit when Compare (x.Forward (j).Element, New_Item) > 0;
-               x := x.Forward (j);
+               exit when X.Forward (j) = null;
+               exit when Compare (X.Forward (j).Element, New_Item) > 0;
+               X := X.Forward (j);
             end loop;
-            update (j) := x;
+            Update (j) := X;
          end loop;
 
-         x := x.Forward (1);
          --  Already presented
-         if x /= null and then x.Element = New_Item then
-            Position := (Container'Unchecked_Access, x);
+         if X.Forward (1) /= null and then
+            X.Forward (1).Element = New_Item then
+            Position := (Container'Unchecked_Access, X.Forward (1));
             return;
          end if;
 
-         new_level := Random_Level (Container);
-         if new_level > Container.Current_Level then
-            Container.Current_Level := new_level;
+         if New_Level > Container.Current_Level then
+            Container.Current_Level := New_Level;
          end if;
 
-         x := new Node_Type'(null, New_Item);
-         x.Forward := new Node_Array (1 .. new_level);
-         for j in 1 .. new_level loop
-            x.Forward (j) := update (j).Forward (j);
-            update (j).Forward (j) := x;
+         Y := new Node_Type'(null, New_Item, 0);
+         Y.Forward := new Node_Array (0 .. New_Level);
+         for j in 1 .. New_Level loop
+            exit when Update (j) = null;
+            Y.Forward (j) := Update (j).Forward (j);
+            Update (j).Forward (j) := Y;
          end loop;
+         Y.Forward (0) := X;
+         X.Forward (1) := Y;
+         if Y.Forward (1) = null then
+            Container.Tail := Y;
+         end if;
          Container.Length := Container.Length + 1;
-         Position := (Container'Unchecked_Access, x);
+         Position := (Container'Unchecked_Access, Y);
       end;
    end Insert;
 
+   --  Helper
    procedure Remove (Container : in out List; Item : Element_Type);
-   procedure Delete (Container : in out List; Position : in out Cursor) is
-   begin
-      --  In case when Position set to null Container.Header,
-      --  which does not equal to No_Cursor
-      if Position.Node = null then
-         Position := No_Cursor;
-         return;
-      end if;
-      --  TODO check if cursor valid
-      Remove (Container, Position.Node.Element);
-      Position := No_Cursor;
-   end Delete;
-
+   --  TODO  Reset Container.Tail
    procedure Remove (Container : in out List; Item : Element_Type) is
-      x : Node_Access;
-      update : Node_Array (1 .. Container.Level) := (others => null);
+      X : Node_Access;
+      Update : Node_Array (1 .. Container.Level) := (others => null);
    begin
-      x := Container.Header;
+      X := Container.Header;
       if Container.Header.Element = Item then
-         Container.Header := x.Forward (1);
+         Container.Header := X.Forward (1);
+         --  FIXME ???
          --  Swap Forwards
          if Container.Header /= null then
-            x.Forward (x.Forward (1).Forward'Range) :=
+            X.Forward (X.Forward (1).Forward'Range) :=
                Container.Header.Forward.all;
             Free (Container.Header.Forward);
-            Container.Header.Forward := x.Forward;
+            Container.Header.Forward := X.Forward;
          else
-            Free (x.Forward);
+            Free (X.Forward);
          end if;
-         Free (x);
+         Free (X);
          Container.Length := Container.Length - 1;
          return;
       end if;
 
       for j in reverse 1 .. Container.Current_Level loop
          loop
-            exit when x.Forward (j) = null;
-            exit when Compare (x.Forward (j).Element, Item) > 0;
-            x := x.Forward (j);
+            exit when X.Forward (j) = null;
+            exit when Compare (X.Forward (j).Element, Item) > 0;
+            X := X.Forward (j);
          end loop;
-         update (j) := x;
+         Update (j) := X;
       end loop;
 
-      x := x.Forward (1);
-      if x /= null and then x.Element = Item then
+      if X.Forward (1) /= null and then X.Forward (1).Element = Item then
+         X.Forward (1).Forward (0) := X;
          for j in 1 .. Container.Current_Level  loop
-            exit when update (j).Forward (j) /= x;
-            update (j).Forward (j) := x.Forward (j);
+            exit when Update (j).Forward (j) /= X;
+            Update (j).Forward (j) := X.Forward (j);
          end loop;
+
          while Container.Current_Level > 0 and then
             Container.Header.Forward (Container.Current_Level) = null loop
                Container.Current_Level := Container.Current_Level - 1;
          end loop;
+
          Container.Length := Container.Length - 1;
-         if x.Forward /= null then
-            Free (x.Forward);
+         if X.Forward /= null then
+            Free (X.Forward);
          end if;
-         Free (x);
+         Free (X);
       end if;
    end Remove;
 
+   procedure Delete (Container : in out List; Position : in out Cursor) is
+   begin
+      if Position.Node = null then
+         Position := No_Cursor;
+         return;
+      end if;
+      Remove (Container, Position.Node.Element);
+      Position := No_Cursor;
+   end Delete;
+
+   procedure Delete_Last (Container : in out List; Count : Positive := 1) is
+   begin
+         if Count > Container.Length then
+            Container.Clear;
+         end if;
+
+   end Delete_Last;
+
    function Iterate (Container : List)
-      return List_Iterator_Interfaces.Forward_Iterator'class is
+      return List_Iterator_Interfaces.Reversible_Iterator'class is
       B : Natural renames Container'Unrestricted_Access.all.Busy;
    begin
       return It : constant Iterator :=
@@ -245,7 +284,7 @@ package body Skip_List is
    end Iterate;
 
    function Iterate (Container : List; Start : Cursor)
-      return List_Iterator_Interfaces.Forward_Iterator'class is
+      return List_Iterator_Interfaces.Reversible_Iterator'class is
       B : Natural renames Container'Unrestricted_Access.all.Busy;
    begin
       if Start = No_Cursor then
@@ -268,9 +307,16 @@ package body Skip_List is
 
    function First (Container : List) return Cursor is
    begin
-      return Cursor'(Container'Unrestricted_Access,
-                     Container.Header);
+      return Cursor'(Container'Unrestricted_Access, Container.Header);
    end First;
+
+   function First_Element (Container : List) return Element_Type is
+   begin
+      if Container.Header = null then
+         raise Constraint_Error with "List is empty";
+      end if;
+      return Container.Header.Element;
+   end First_Element;
 
    function Last (Container : List) return Cursor is
       x : Node_Access;
@@ -284,6 +330,14 @@ package body Skip_List is
       end loop;
       return (Container'Unrestricted_Access, x);
    end Last;
+
+   function Last_Element (Container : List) return Element_Type is
+   begin
+      if Container.Tail = null then
+         raise Constraint_Error with "List is empty";
+      end if;
+      return Container.Tail.Element;
+   end Last_Element;
 
    function Next (Position : Cursor) return Cursor is
    begin
@@ -304,54 +358,101 @@ package body Skip_List is
       Position := No_Cursor;
    end Next;
 
-   function Find (Container : List; Item : Element_Type) return Cursor is
-      x : Node_Access;
+   function Previous (Position : Cursor) return Cursor is
    begin
-      x := Container.Header;
-      if x.Element = Item then
+      if Position.Node /= null and then
+         Position.Node.Forward (0) /= null then
+         return Cursor'(Position.Container, Position.Node.Forward (0));
+      end if;
+      return No_Cursor;
+   end Previous;
+
+   procedure Previous (Position : in out Cursor) is
+   begin
+      if Position.Node /= null and then
+         Position.Node.Forward (0) /= null then
+         Position.Node := Position.Node.Forward (0);
+         return;
+      end if;
+      Position := No_Cursor;
+   end Previous;
+
+   function Find (Container : List; Item : Element_Type) return Cursor is
+      X : Node_Access;
+   begin
+      if Container.Header = null then
+         raise Constraint_Error with "List is empty";
+      end if;
+      X := Container.Header;
+      if X.Element = Item then
          return Container.First;
       end if;
       for j in reverse 1 .. Container.Current_Level loop
          loop
-            exit when x.Forward (j) = null;
-            exit when Compare (x.Forward (j).Element, Item) > 0;
-            x := x.Forward (j);
+            exit when X.Forward (j) = null;
+            exit when Compare (X.Forward (j).Element, Item) > 0;
+            X := X.Forward (j);
          end loop;
       end loop;
-      x := x.Forward (1);
-      if x.Element = Item then
-         return Cursor'(Container'Unrestricted_Access, x);
+      X := X.Forward (1);
+      if X.Element = Item then
+         return Cursor'(Container'Unrestricted_Access, X);
       end if;
       return No_Cursor;
    end Find;
 
    function Contains (Container : List; Item : Element_Type) return Boolean is
-      x : Node_Access;
+      X : Node_Access;
    begin
-      x := Container.Header;
+      X := Container.Header;
       for j in reverse 1 .. Container.Current_Level loop
          loop
-            exit when x.Forward (j) = null;
-            exit when Compare (x.Forward (j).Element, Item) > 0;
-            x := x.Forward (j);
+            exit when X.Forward (j) = null;
+            exit when Compare (X.Forward (j).Element, Item) > 0;
+            X := X.Forward (j);
          end loop;
       end loop;
-      x := x.Forward (1);
-      if x.Element = Item then
+      if X.Forward (1).Element = Item then
          return True;
       end if;
       return False;
    end Contains;
 
---   procedure Finalize (Object : in out Iterator) is
---   begin
---      null;
---   end Finalize;
---
+
+   procedure Adjust (Control : in out Reference_Control_Type) is
+   begin
+      if Control.Node /= null then
+         Control.Node.all.Lock := Control.Node.all.Lock + 1;
+      end if;
+   end Adjust;
+
+   procedure Finalize (Control : in out Reference_Control_Type) is
+   begin
+      if Control.Node /= null then
+         Control.Node.all.Lock := Control.Node.all.Lock - 1;
+      end if;
+   end Finalize;
+
+   procedure Finalize (Object : in out Iterator) is
+   begin
+      if Object.Container /= null then
+         declare
+            B : Natural renames Object.Container.all.Busy;
+         begin
+            B := B - 1;
+         end;
+      end if;
+   end Finalize;
+
    function First (Object : Iterator) return Cursor is
    begin
       return First (Object.Container.all);
    end First;
+
+   function Last (Object : Iterator) return Cursor is
+   begin
+      return Last (Object.Container.all);
+   end Last;
 
    function Next (Object : Iterator; Position : Cursor) return Cursor is
    begin
@@ -360,5 +461,13 @@ package body Skip_List is
       end if;
       return  Next (Position);
    end Next;
+
+   function Previous (Object : Iterator; Position : Cursor) return Cursor is
+   begin
+      if Object.Container /= Position.Container then
+         return No_Cursor;
+      end if;
+      return  Previous (Position);
+   end Previous;
 
 end Skip_List;

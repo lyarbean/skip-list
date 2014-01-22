@@ -79,29 +79,33 @@ package Skip_List is
 
    procedure Delete (Container : in out List; Position : in out Cursor);
 
-   --  procedure Delete_Last (Container : in out List; Count_Type := 1);
+   procedure Delete_Last (Container : in out List; Count : Positive := 1);
 
-   --  Currently only Forward_Iterator considered
    function Iterate (Container : List)
-      return List_Iterator_Interfaces.Forward_Iterator'class;
-      --  return List_Iterator_Interfaces.Reversible_Iterator'class;
+      --  return List_Iterator_Interfaces.Forward_Iterator'class;
+      return List_Iterator_Interfaces.Reversible_Iterator'class;
 
    function Iterate (Container : List; Start : Cursor)
-      return List_Iterator_Interfaces.Forward_Iterator'class;
+      --  return List_Iterator_Interfaces.Forward_Iterator'class;
+      return List_Iterator_Interfaces.Reversible_Iterator'class;
 
    --  TODO Splice
 
    function First (Container : List) return Cursor;
 
-   --  function First_Element (Container : List) return Element_Type;
+   function First_Element (Container : List) return Element_Type;
 
    function Last (Container : List) return Cursor;
 
-   --  function Last_Element (Container : List) return Element_Type;
+   function Last_Element (Container : List) return Element_Type;
 
    function Next (Position : Cursor) return Cursor;
 
    procedure Next (Position : in out Cursor);
+
+   function Previous (Position : Cursor) return Cursor;
+
+   procedure Previous (Position : in out Cursor);
 
    function Find (Container : List; Item : Element_Type) return Cursor;
 
@@ -113,31 +117,33 @@ package Skip_List is
 
 private
    pragma Inline (Next);
-   --  pragma Inline (Previous);
+   pragma Inline (Previous);
 
    use Ada.Streams;
    use Ada.Finalization;
    type Node_Type;
-   type Node_Access is access Node_Type;
-   type Node_Array is array (Positive range <>) of Node_Access;
+   type Node_Access is access all Node_Type;
+   type Node_Array is array (Natural range <>) of Node_Access;
    type Node_Array_Access is access Node_Array;
    type Node_Type is record
-      --  Backward
       Forward : Node_Array_Access;
       Element : aliased Element_Type;
+      Lock    : Natural;
+      pragma Atomic (Lock);
    end record;
 
-   --  Non-copyable
    type List (Level : Positive) is new Limited_Controlled with
       record
          Header : Node_Access;
+         pragma Atomic (Header);
+         Tail   : Node_Access;
+         pragma Atomic (Tail);
          Length : Natural;
+         pragma Atomic (Length);
          Current_Level   : Natural;
          pragma Atomic (Current_Level);
          Busy   : Natural;
          pragma Atomic (Busy);
-         Lock   : Natural;
-         pragma Atomic (Lock);
       end record;
 
    overriding procedure Initialize (Container : in out List);
@@ -152,24 +158,46 @@ private
          Node      : Node_Access;
       end record;
 
-   type Constant_Reference_Type
-      (Element : not null access constant Element_Type) is null record;
-   type Reference_Type
-      (Element : not null access Element_Type) is null record;
+   type Reference_Control_Type is new Controlled with
+      record
+         Node : Node_Access;
+      end record;
 
-   Empty_List : constant List := (Limited_Controlled with 1, null, 0, 0, 0, 0);
+   overriding procedure Adjust (Control : in out Reference_Control_Type);
+   pragma Inline (Adjust);
+
+   overriding procedure Finalize (Control : in out Reference_Control_Type);
+   pragma Inline (Finalize);
+
+   type Constant_Reference_Type
+      (Element : not null access constant Element_Type) is
+      record
+         Control : Reference_Control_Type;
+      end record;
+
+   type Reference_Type
+      (Element : not null access Element_Type) is
+      record
+         Control : Reference_Control_Type;
+      end record;
+
+   Empty_List : constant List :=
+               (Limited_Controlled with 1, null, null, 0, 0, 0);
    No_Cursor  : constant Cursor := Cursor'(null, null);
 
    type Iterator is new Limited_Controlled
-      and List_Iterator_Interfaces.Forward_Iterator with
+      and List_Iterator_Interfaces.Reversible_Iterator with
       record
          Container : List_Access;
          Node      : Node_Access;
       end record;
 
-   --  overriding procedure Finalize (Object : in out Iterator);
+   overriding procedure Finalize (Object : in out Iterator);
    overriding function First (Object : Iterator) return Cursor;
+   overriding function Last (Object : Iterator) return Cursor;
    overriding function Next
+      (Object : Iterator; Position : Cursor) return Cursor;
+   overriding function Previous
       (Object : Iterator; Position : Cursor) return Cursor;
 
 end Skip_List;
