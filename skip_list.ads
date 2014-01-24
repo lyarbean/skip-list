@@ -10,8 +10,8 @@ generic
 
 package Skip_List is
    type List (Level : Positive) is tagged limited private with
-      Constant_Indexing => Constant_Reference,
-      Variable_Indexing => Reference,
+      --  Constant_Indexing => Constant_Reference,
+      --  Variable_Indexing => Reference,
       Default_Iterator  => Iterate,
       Iterator_Element  => Element_Type;
 
@@ -52,23 +52,23 @@ package Skip_List is
       Process   : not null access procedure
                   (Element : in out Element_Type)) is null;
 
-   type Constant_Reference_Type
-      (Element : not null access constant Element_Type) is private
-   with Implicit_Dereference => Element;
+   --type Constant_Reference_Type
+   --   (Element : not null access constant Element_Type) is private
+   --with Implicit_Dereference => Element;
 
-   type Reference_Type
-     (Element : not null access Element_Type) is private
-   with Implicit_Dereference => Element;
+   --type Reference_Type
+   --  (Element : not null access Element_Type) is private
+   --with Implicit_Dereference => Element;
 
-   function Constant_Reference
-     (Container : aliased List;
-      Position  : Cursor) return Constant_Reference_Type;
-   pragma Inline (Constant_Reference);
+   --function Constant_Reference
+   --  (Container : aliased List;
+   --   Position  : Cursor) return Constant_Reference_Type;
+   --pragma Inline (Constant_Reference);
 
-   function Reference
-     (Container : aliased in out List;
-      Position  : Cursor) return Reference_Type;
-   pragma Inline (Reference);
+   --function Reference
+   --  (Container : aliased in out List;
+   --   Position  : Cursor) return Reference_Type;
+   --pragma Inline (Reference);
 
    procedure Insert (Container : in out List; New_Item : Element_Type);
 
@@ -160,28 +160,28 @@ private
          Node      : Node_Access;
       end record;
 
-   type Reference_Control_Type is new Controlled with
-      record
-         Node : Node_Access;
-      end record;
+   --type Reference_Control_Type is new Controlled with
+   --   record
+   --      Node : Node_Access;
+   --   end record;
 
-   overriding procedure Adjust (Control : in out Reference_Control_Type);
-   pragma Inline (Adjust);
+   --overriding procedure Adjust (Control : in out Reference_Control_Type);
+   --pragma Inline (Adjust);
 
-   overriding procedure Finalize (Control : in out Reference_Control_Type);
-   pragma Inline (Finalize);
+   --overriding procedure Finalize (Control : in out Reference_Control_Type);
+   --pragma Inline (Finalize);
 
-   type Constant_Reference_Type
-      (Element : not null access constant Element_Type) is
-      record
-         Control : Reference_Control_Type;
-      end record;
+   --type Constant_Reference_Type
+   --   (Element : not null access constant Element_Type) is
+   --   record
+   --      Control : Reference_Control_Type;
+   --   end record;
 
-   type Reference_Type
-      (Element : not null access Element_Type) is
-      record
-         Control : Reference_Control_Type;
-      end record;
+   --type Reference_Type
+   --   (Element : not null access Element_Type) is
+   --   record
+   --      Control : Reference_Control_Type;
+   --   end record;
 
    Empty_List : constant List :=
                (Limited_Controlled with 1, null, null, 0, 0, 0);

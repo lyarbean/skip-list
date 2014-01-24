@@ -93,35 +93,35 @@ package body Skip_List is
    --  FIXME References are allocated on secondary stack, but not got freed
    --        It seems like a bug in GNAT
 
-   function Constant_Reference
-     (Container : aliased List;
-      Position  : Cursor) return Constant_Reference_Type is
-   begin
-      if Position.Container /= Container'Unrestricted_Access
-         or Position.Node = null then
-         raise Program_Error with "Bad Cursor on Constant_Reference";
-      end if;
-      return R : Constant_Reference_Type :=
-         (Element => Position.Node.Element'Access,
-         Control => (Controlled with Position.Node)) do
-            System.Atomic_Counters.Increment (Position.Node.Lock);
-         end return;
-   end Constant_Reference;
+   --function Constant_Reference
+   --  (Container : aliased List;
+   --   Position  : Cursor) return Constant_Reference_Type is
+   --begin
+   --   if Position.Container /= Container'Unrestricted_Access
+   --      or Position.Node = null then
+   --      raise Program_Error with "Bad Cursor on Constant_Reference";
+   --   end if;
+   --   return R : Constant_Reference_Type :=
+   --      (Element => Position.Node.Element'Access,
+   --      Control => (Controlled with Position.Node)) do
+   --         System.Atomic_Counters.Increment (Position.Node.Lock);
+   --      end return;
+   --end Constant_Reference;
 
-   function Reference
-     (Container : aliased in out List;
-      Position  : Cursor) return Reference_Type is
-   begin
-      if Position.Container /= Container'Unrestricted_Access
-         or Position.Node = null then
-         raise Program_Error with "Bad Cursor on Reference";
-      end if;
-      return R : Reference_Type :=
-         (Element => Position.Node.Element'Access,
-         Control => (Controlled with position.Node)) do
-            System.Atomic_Counters.Increment (Position.Node.Lock);
-         end return;
-   end Reference;
+   --function Reference
+   --  (Container : aliased in out List;
+   --   Position  : Cursor) return Reference_Type is
+   --begin
+   --   if Position.Container /= Container'Unrestricted_Access
+   --      or Position.Node = null then
+   --      raise Program_Error with "Bad Cursor on Reference";
+   --   end if;
+   --   return R : Reference_Type :=
+   --      (Element => Position.Node.Element'Access,
+   --      Control => (Controlled with position.Node)) do
+   --         System.Atomic_Counters.Increment (Position.Node.Lock);
+   --      end return;
+   --end Reference;
 
    procedure Insert (Container : in out List; New_Item : Element_Type) is
       Pos : Cursor;
@@ -422,21 +422,21 @@ package body Skip_List is
       return False;
    end Contains;
 
-   procedure Adjust (Control : in out Reference_Control_Type) is
-   begin
-      if Control.Node /= null then
-         System.Atomic_Counters.Increment (Control.Node.Lock);
-      end if;
-   end Adjust;
+   --procedure Adjust (Control : in out Reference_Control_Type) is
+   --begin
+   --   if Control.Node /= null then
+   --      System.Atomic_Counters.Increment (Control.Node.Lock);
+   --   end if;
+   --end Adjust;
 
-   procedure Finalize (Control : in out Reference_Control_Type) is
-      Is_Zero : Boolean;
-      pragma Unreferenced (Is_Zero);
-   begin
-      if Control.Node /= null then
-         Is_Zero := System.Atomic_Counters.Decrement (Control.Node.Lock);
-      end if;
-   end Finalize;
+   --procedure Finalize (Control : in out Reference_Control_Type) is
+   --   Is_Zero : Boolean;
+   --   pragma Unreferenced (Is_Zero);
+   --begin
+   --   if Control.Node /= null then
+   --      Is_Zero := System.Atomic_Counters.Decrement (Control.Node.Lock);
+   --   end if;
+   --end Finalize;
 
    procedure Finalize (Object : in out Iterator) is
    begin
