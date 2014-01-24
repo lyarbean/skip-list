@@ -3,7 +3,7 @@ pragma Ada_2012;
 with Ada.Iterator_Interfaces;
 private with Ada.Streams;
 private with Ada.Finalization;
-
+private with System.Atomic_Counters;
 generic
    type Element_Type is private;
    with function Compare (Left, Right : Element_Type) return Integer is <>;
@@ -116,20 +116,22 @@ package Skip_List is
    --     Process : not null access procedure (Position : Cursor));
 
 private
+   pragma Inline (First);
+   pragma Inline (Last);
    pragma Inline (Next);
    pragma Inline (Previous);
 
    use Ada.Streams;
    use Ada.Finalization;
    type Node_Type;
-   type Node_Access is access all Node_Type;
+   type Node_Access is access Node_Type;
    type Node_Array is array (Natural range <>) of Node_Access;
+   pragma Atomic_Components (Node_Array);
    type Node_Array_Access is access Node_Array;
    type Node_Type is record
       Forward : Node_Array_Access;
       Element : aliased Element_Type;
-      Lock    : Natural;
-      pragma Atomic (Lock);
+      Lock    : System.Atomic_Counters.Atomic_Counter;
    end record;
 
    type List (Level : Positive) is new Limited_Controlled with

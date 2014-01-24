@@ -66,7 +66,7 @@ package body Skip_List is
       end if;
       while X /= null loop
          Y := X.Forward (1);
-         pragma Assert (X.Lock = 0);
+         pragma Assert (System.Atomic_Counters.Is_One (X.Lock));
          Free (X.Forward);
          Free (X);
          X := Y;
@@ -86,7 +86,6 @@ package body Skip_List is
    --  Query
    --  Update
 
-
    -----------------
    --  Reference  --
    -----------------
@@ -98,30 +97,30 @@ package body Skip_List is
      (Container : aliased List;
       Position  : Cursor) return Constant_Reference_Type is
    begin
-      if Container /= Position.Container.all
+      if Position.Container /= Container'Unrestricted_Access
          or Position.Node = null then
          raise Program_Error with "Bad Cursor on Constant_Reference";
       end if;
       return R : Constant_Reference_Type :=
          (Element => Position.Node.Element'Access,
          Control => (Controlled with Position.Node)) do
-         Position.Node.Lock := Position.Node.Lock + 1;
-      end return;
+            System.Atomic_Counters.Increment (Position.Node.Lock);
+         end return;
    end Constant_Reference;
 
    function Reference
      (Container : aliased in out List;
       Position  : Cursor) return Reference_Type is
    begin
-      if Container /= Position.Container.all
+      if Position.Container /= Container'Unrestricted_Access
          or Position.Node = null then
          raise Program_Error with "Bad Cursor on Reference";
       end if;
       return R : Reference_Type :=
          (Element => Position.Node.Element'Access,
          Control => (Controlled with position.Node)) do
-         Position.Node.Lock := Position.Node.Lock + 1;
-      end return;
+            System.Atomic_Counters.Increment (Position.Node.Lock);
+         end return;
    end Reference;
 
    procedure Insert (Container : in out List; New_Item : Element_Type) is
@@ -140,7 +139,7 @@ package body Skip_List is
             raise Program_Error
             with "Container.Length /= 0" & Container.Length'Img;
          end if;
-         Container.Header := new Node_Type'(null, New_Item, 0);
+         Container.Header := new Node_Type'(null, New_Item, Lock => <>);
          Container.Header.Forward := new Node_Array (0 .. Container.Level);
          Container.Header.Forward.all := (others => null);
          Container.Tail := Container.Header;
@@ -160,7 +159,7 @@ package body Skip_List is
             exit Random_Level when New_Level >= Container.Level;
             New_Level := New_Level + 1;
          end loop Random_Level;
-
+         --  TODO Atomic access and lock nodes
          for j in reverse 1 .. Container.Current_Level loop
             loop
                exit when X.Forward (j) = null;
@@ -181,7 +180,7 @@ package body Skip_List is
             Container.Current_Level := New_Level;
          end if;
 
-         Y := new Node_Type'(null, New_Item, 0);
+         Y := new Node_Type'(null, New_Item, Lock => <>);
          Y.Forward := new Node_Array (0 .. New_Level);
          for j in 1 .. New_Level loop
             exit when Update (j) = null;
@@ -231,7 +230,9 @@ package body Skip_List is
          end loop;
          Update (j) := X;
       end loop;
-
+      --  TODO and FIXME
+      --  A node with Lock > 1 means there are visitor, don't remove it,
+      --  Decrement lock instead. If Is_One then is fine to deallocate
       if X.Forward (1) /= null and then X.Forward (1).Element = Item then
          X.Forward (1).Forward (0) := X;
          for j in 1 .. Container.Current_Level  loop
@@ -262,6 +263,7 @@ package body Skip_List is
       Position := No_Cursor;
    end Delete;
 
+   --  TODO
    procedure Delete_Last (Container : in out List; Count : Positive := 1) is
    begin
          if Count > Container.Length then
@@ -277,7 +279,7 @@ package body Skip_List is
       return It : constant Iterator :=
          Iterator'(Limited_Controlled with
          Container => Container'Unrestricted_Access,
-         Node      => null)
+         Node      => Container.Header)
          do
             B := B + 1;
          end return;
@@ -294,7 +296,6 @@ package body Skip_List is
          raise Program_Error with
          "Start cursor of Iterate designates wrong list";
       else
-         --  pragma Assert (Vet (Start), "Start cursor of Iterate is bad");
          return It : constant Iterator :=
             Iterator'(Limited_Controlled with
             Container => Container'Unrestricted_Access,
@@ -307,6 +308,12 @@ package body Skip_List is
 
    function First (Container : List) return Cursor is
    begin
+      if Container.Header = null then
+         if Container.Length > 0 then
+            raise Program_Error with "Null Header while Length > 0";
+         end if;
+         return No_Cursor;
+      end if;
       return Cursor'(Container'Unrestricted_Access, Container.Header);
    end First;
 
@@ -319,16 +326,14 @@ package body Skip_List is
    end First_Element;
 
    function Last (Container : List) return Cursor is
-      x : Node_Access;
    begin
-      if Container.Is_Empty then
+      if Container.Tail = null then
+         if Container.Length > 0 then
+            raise Program_Error with "Null Tail while Length > 0";
+         end if;
          return No_Cursor;
       end if;
-      x := Container.Header;
-      while x.Forward (1) /= null loop
-         x := x.Forward (1);
-      end loop;
-      return (Container'Unrestricted_Access, x);
+      return (Container'Unrestricted_Access, Container.Tail);
    end Last;
 
    function Last_Element (Container : List) return Element_Type is
@@ -394,7 +399,6 @@ package body Skip_List is
             X := X.Forward (j);
          end loop;
       end loop;
-      X := X.Forward (1);
       if X.Element = Item then
          return Cursor'(Container'Unrestricted_Access, X);
       end if;
@@ -412,24 +416,25 @@ package body Skip_List is
             X := X.Forward (j);
          end loop;
       end loop;
-      if X.Forward (1).Element = Item then
+      if X.Element = Item then
          return True;
       end if;
       return False;
    end Contains;
 
-
    procedure Adjust (Control : in out Reference_Control_Type) is
    begin
       if Control.Node /= null then
-         Control.Node.all.Lock := Control.Node.all.Lock + 1;
+         System.Atomic_Counters.Increment (Control.Node.Lock);
       end if;
    end Adjust;
 
    procedure Finalize (Control : in out Reference_Control_Type) is
+      Is_Zero : Boolean;
+      pragma Unreferenced (Is_Zero);
    begin
       if Control.Node /= null then
-         Control.Node.all.Lock := Control.Node.all.Lock - 1;
+         Is_Zero := System.Atomic_Counters.Decrement (Control.Node.Lock);
       end if;
    end Finalize;
 
