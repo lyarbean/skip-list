@@ -37,6 +37,7 @@ package body Skip_List is
       return True;
    end Has_Element;
 
+   --  FIXME
    function "=" (Left, Right : List) return Boolean is
    begin
       return Left.Header = Right.Header;
@@ -139,6 +140,7 @@ package body Skip_List is
             raise Program_Error
             with "Container.Length /= 0" & Container.Length'Img;
          end if;
+         --  TODO lock whole list to add header
          Container.Header := new Node_Type'(null, New_Item, Lock => <>);
          Container.Header.Forward := new Node_Array (0 .. Container.Level);
          Container.Header.Forward.all := (others => null);
@@ -160,6 +162,7 @@ package body Skip_List is
             New_Level := New_Level + 1;
          end loop Random_Level;
          --  TODO Atomic access and lock nodes
+         --  TODO Increment Lock for each node to update
          for j in reverse 1 .. Container.Current_Level loop
             loop
                exit when X.Forward (j) = null;
