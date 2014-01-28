@@ -1,9 +1,9 @@
+
 pragma License (GPL);
 pragma Ada_2012;
 with Ada.Iterator_Interfaces;
-private with Ada.Streams;
 private with Ada.Finalization;
-private with System.Atomic_Counters;
+private with Atomic_Value;
 generic
    type Element_Type is private;
    with function Compare (Left, Right : Element_Type) return Integer is <>;
@@ -23,6 +23,7 @@ package Skip_List is
    No_Cursor : constant Cursor;
 
    function Has_Element (Position : Cursor) return Boolean;
+   function Is_Valid (Position : Cursor) return Boolean;
 
    package List_Iterator_Interfaces is new
      Ada.Iterator_Interfaces (Cursor, Has_Element);
@@ -51,24 +52,6 @@ package Skip_List is
       Position  : Cursor;
       Process   : not null access procedure
                   (Element : in out Element_Type)) is null;
-
-   --type Constant_Reference_Type
-   --   (Element : not null access constant Element_Type) is private
-   --with Implicit_Dereference => Element;
-
-   --type Reference_Type
-   --  (Element : not null access Element_Type) is private
-   --with Implicit_Dereference => Element;
-
-   --function Constant_Reference
-   --  (Container : aliased List;
-   --   Position  : Cursor) return Constant_Reference_Type;
-   --pragma Inline (Constant_Reference);
-
-   --function Reference
-   --  (Container : aliased in out List;
-   --   Position  : Cursor) return Reference_Type;
-   --pragma Inline (Reference);
 
    procedure Insert (Container : in out List; New_Item : Element_Type);
 
@@ -121,17 +104,18 @@ private
    pragma Inline (Next);
    pragma Inline (Previous);
 
-   use Ada.Streams;
    use Ada.Finalization;
+   use Atomic_Value;
    type Node_Type;
    type Node_Access is access Node_Type;
    type Node_Array is array (Natural range <>) of Node_Access;
    pragma Atomic_Components (Node_Array);
    type Node_Array_Access is access Node_Array;
+
    type Node_Type is record
       Forward : Node_Array_Access;
       Element : aliased Element_Type;
-      Lock    : System.Atomic_Counters.Atomic_Counter;
+      Visited : aliased B4;   -- B8?
    end record;
 
    type List (Level : Positive) is new Limited_Controlled with
@@ -144,8 +128,6 @@ private
          pragma Atomic (Length);
          Current_Level   : Natural;
          pragma Atomic (Current_Level);
-         Busy   : Natural;
-         pragma Atomic (Busy);
       end record;
 
    overriding procedure Initialize (Container : in out List);
@@ -160,31 +142,8 @@ private
          Node      : Node_Access;
       end record;
 
-   --type Reference_Control_Type is new Controlled with
-   --   record
-   --      Node : Node_Access;
-   --   end record;
-
-   --overriding procedure Adjust (Control : in out Reference_Control_Type);
-   --pragma Inline (Adjust);
-
-   --overriding procedure Finalize (Control : in out Reference_Control_Type);
-   --pragma Inline (Finalize);
-
-   --type Constant_Reference_Type
-   --   (Element : not null access constant Element_Type) is
-   --   record
-   --      Control : Reference_Control_Type;
-   --   end record;
-
-   --type Reference_Type
-   --   (Element : not null access Element_Type) is
-   --   record
-   --      Control : Reference_Control_Type;
-   --   end record;
-
    Empty_List : constant List :=
-               (Limited_Controlled with 1, null, null, 0, 0, 0);
+               (Limited_Controlled with 1, null, null, 0, 0);
    No_Cursor  : constant Cursor := Cursor'(null, null);
 
    type Iterator is new Limited_Controlled

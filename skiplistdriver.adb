@@ -21,9 +21,9 @@ procedure skiplistdriver is
    r, rr : Cursor;
 
 begin
-   for j in 1 .. 2 ** 15 loop
+   for j in 1 .. 2 ** 10 loop
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
-      Ada.Text_IO.Put_Line (skiplist.Last_Element.K'Img);
+      --  Ada.Text_IO.Put_Line (skiplist.Last_Element.K'Img);
    end loop;
    Ada.Text_IO.Put_Line ("Done Insert");
    --  for c : Constant_Reference of skiplist loop

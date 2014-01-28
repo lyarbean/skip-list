@@ -2,7 +2,15 @@ pragma License (GPL);
 pragma Ada_2012;
 with Ada.Numerics.Float_Random;
 with Ada.Unchecked_Deallocation;
+with Ada.Unchecked_Conversion;
 with Ada.Text_IO;
+with System;
+use type System.Address;
+
+---------------------------
+--  ISSUES
+--  1. Are FENCES required?
+---------------------------
 package body Skip_List is
    procedure Free is new Ada.Unchecked_Deallocation (Node_Type, Node_Access);
    procedure Free is
@@ -11,24 +19,57 @@ package body Skip_List is
    package NFR renames Ada.Numerics.Float_Random;
    G : NFR.Generator;
 
+   ----------------------------------
+   --  Atomic Compare And Exchange --
+   ----------------------------------
+   function Compare_Exchange
+      (Dest : access Node_Access; Expetected, Desired : Node_Access)
+      return Boolean;
+
+   function Compare_Exchange
+      (Dest : access Node_Access; Expetected, Desired : Node_Access)
+      return Boolean is
+      function To is new Ada.Unchecked_Conversion (Node_Access, B8);
+   begin
+      return Atomic_Compare_Exchange_8
+         (To (Dest.all)'Unrestricted_Access,
+         To (Expetected)'Unrestricted_Access, To (Desired));
+   end Compare_Exchange;
+
    procedure Initialize (Container : in out List) is
    begin
       NFR.Reset (G, Container.Level);
       Container.Header        := null;
       Container.Current_Level := 0;
       Container.Length        := 0;
-      Container.Busy          := 0;
    end Initialize;
 
+   --  One cannot reference any node of this list, as all refs get invalid.
    procedure Finalize (Container : in out List) is
+      X, Y : Node_Access;
    begin
+      if Container.Length = 0 then
+         pragma Assert (Container.Header = null);
+         pragma Assert (Container.Tail = null);
+         return;
+      end if;
       Container.Clear;
+      Atomic_Thread_Fence;
+      X := Container.Header;
+      while X /= null loop
+         Y := X.Forward (1);
+         pragma Assert (Atomic_Load_4 (X.Visited'Access) = 0);
+         Free (X.Forward);
+         Free (X);
+         X := Y;
+      end loop;
    end Finalize;
 
    ----------------
    --  External  --
    ----------------
 
+   --  FIXME Is this correct?
    function Has_Element (Position : Cursor) return Boolean is
    begin
       if Position.Node = null then
@@ -37,10 +78,17 @@ package body Skip_List is
       return True;
    end Has_Element;
 
-   --  FIXME
+   function Is_Valid (Position : Cursor) return Boolean is
+      B : B4;
+   begin
+      Atomic_Thread_Fence;
+      B := Atomic_Load_4 (Position.Node.Visited'Access);
+      return B > 0;
+   end Is_Valid;
+
    function "=" (Left, Right : List) return Boolean is
    begin
-      return Left.Header = Right.Header;
+      return Left'Address = Right'Address;
    end "=";
 
    function Length (Container : List) return Natural is
@@ -50,31 +98,34 @@ package body Skip_List is
 
    function Is_Empty (Container : List) return Boolean is
    begin
-      return Container.Length = 0;
+      return Container.Header = null;
    end Is_Empty;
 
+   --  No Finalization, just reset all Visited
    procedure Clear (Container : in out List) is
-      X, Y : Node_Access := Container.Header;
+      X, Y : Node_Access;
    begin
       if Container.Length = 0 then
          pragma Assert (Container.Header = null);
          pragma Assert (Container.Tail = null);
-         pragma Assert (Container.Busy = 0);
          return;
       end if;
-      if Container.Busy > 0 then
-         raise Program_Error with "Attemp to clear while list is busy";
-      end if;
+      Atomic_Thread_Fence;
+      X := Container.Header;
       while X /= null loop
          Y := X.Forward (1);
-         pragma Assert (System.Atomic_Counters.Is_One (X.Lock));
-         Free (X.Forward);
-         Free (X);
+         pragma Assert
+            (Atomic_Load_4 (X.Visited'Access) = 1
+            or Atomic_Load_4 (X.Visited'Access) = 0);
+         Atomic_Store_4 (X.Visited'Access, 0);
+         Atomic_Thread_Fence;
+         --  Don't reset X.Forward;
          X := Y;
       end loop;
-      Initialize (Container);
+      Container.Length := 0;
    end Clear;
 
+   --  User is responsible to call Is_Valid against Position for a valid node
    function Element (Position : Cursor) return Element_Type is
    begin
       if Position.Node = null then
@@ -87,42 +138,6 @@ package body Skip_List is
    --  Query
    --  Update
 
-   -----------------
-   --  Reference  --
-   -----------------
-
-   --  FIXME References are allocated on secondary stack, but not got freed
-   --        It seems like a bug in GNAT
-
-   --function Constant_Reference
-   --  (Container : aliased List;
-   --   Position  : Cursor) return Constant_Reference_Type is
-   --begin
-   --   if Position.Container /= Container'Unrestricted_Access
-   --      or Position.Node = null then
-   --      raise Program_Error with "Bad Cursor on Constant_Reference";
-   --   end if;
-   --   return R : Constant_Reference_Type :=
-   --      (Element => Position.Node.Element'Access,
-   --      Control => (Controlled with Position.Node)) do
-   --         System.Atomic_Counters.Increment (Position.Node.Lock);
-   --      end return;
-   --end Constant_Reference;
-
-   --function Reference
-   --  (Container : aliased in out List;
-   --   Position  : Cursor) return Reference_Type is
-   --begin
-   --   if Position.Container /= Container'Unrestricted_Access
-   --      or Position.Node = null then
-   --      raise Program_Error with "Bad Cursor on Reference";
-   --   end if;
-   --   return R : Reference_Type :=
-   --      (Element => Position.Node.Element'Access,
-   --      Control => (Controlled with position.Node)) do
-   --         System.Atomic_Counters.Increment (Position.Node.Lock);
-   --      end return;
-   --end Reference;
 
    procedure Insert (Container : in out List; New_Item : Element_Type) is
       Pos : Cursor;
@@ -135,162 +150,160 @@ package body Skip_List is
       (Container : in out List; New_Item : Element_Type; Position : out Cursor)
    is
    begin
-      if Container.Header = null then
-         if not Container.Is_Empty then
-            raise Program_Error
-            with "Container.Length /= 0" & Container.Length'Img;
-         end if;
-         --  TODO lock whole list to add header
-         Container.Header := new Node_Type'(null, New_Item, Lock => <>);
-         Container.Header.Forward := new Node_Array (0 .. Container.Level);
-         Container.Header.Forward.all := (others => null);
-         Container.Tail := Container.Header;
-         Container.Length := 1;
-         Container.Current_Level := 1;
-         Position := Container.First;
-         return;
-      end if;
+      <<Start>>
+      Atomic_Thread_Fence;
+      declare
+         H : Node_Access := Container.Header;
+         B : Boolean;
+         pragma Unreferenced (B);
+      begin
+         if H = null then
+            --  Prepare to insert as Header, but may not success
+            --
+            H := new Node_Type'(null, New_Item, 1);
+            H.Forward := new Node_Array (0 .. Container.Level);
+            H.Forward.all := (others => null);
 
+            --  Check if Header is not present use CAS
+            if not Compare_Exchange
+               (Container.Header'Unrestricted_Access, null, H) then
+               Free (H.Forward);
+               Free (H);
+               Ada.Text_IO.Put_Line ("Retry");
+               goto Start;
+            end if;
+            B := Compare_Exchange
+               (Container.Tail'Unrestricted_Access, null, H);
+            Container.Length := 1;
+            Container.Current_Level := 1;
+            Position := Container.First;
+            return;
+         end if;
+      end;
+
+      --  Find the position first and insert a node with null forwards
       declare
          X, Y : Node_Access := Container.Header;
          New_Level : Integer := 1;
-         Update : Node_Array (1 .. Container.Level) := (others => null);
+         B : B4;
       begin
+
          Random_Level :
          while NFR.Random (G) < 0.5 loop
             exit Random_Level when New_Level >= Container.Level;
             New_Level := New_Level + 1;
          end loop Random_Level;
-         --  TODO Atomic access and lock nodes
-         --  TODO Increment Lock for each node to update
-         for j in reverse 1 .. Container.Current_Level loop
-            loop
-               exit when X.Forward (j) = null;
-               exit when Compare (X.Forward (j).Element, New_Item) > 0;
-               X := X.Forward (j);
-            end loop;
-            Update (j) := X;
-         end loop;
-
-         --  Already presented
-         if X.Forward (1) /= null and then
-            X.Forward (1).Element = New_Item then
-            Position := (Container'Unchecked_Access, X.Forward (1));
-            return;
-         end if;
 
          if New_Level > Container.Current_Level then
             Container.Current_Level := New_Level;
          end if;
 
-         Y := new Node_Type'(null, New_Item, Lock => <>);
-         Y.Forward := new Node_Array (0 .. New_Level);
-         for j in 1 .. New_Level loop
-            exit when Update (j) = null;
-            Y.Forward (j) := Update (j).Forward (j);
-            Update (j).Forward (j) := Y;
+         --  TODO Check Atomic ops
+         for j in reverse 1 .. Container.Current_Level loop
+            loop
+               Y := X.Forward (j);
+               exit when Y = null;
+               exit when Compare (Y.Element, New_Item) > 0;
+               X := Y;
+            end loop;
          end loop;
-         Y.Forward (0) := X;
+         Y := X.Forward (1);
+
+         --  Already presented
+         if Y /= null and then Compare (Y.Element, New_Item) = 0 then
+            <<Try>>
+            B := Atomic_Load_4 (Y.Visited'Access);
+            if B = 0 then
+               --  Attach
+               --  TODO Visit
+               if not Atomic_Compare_Exchange_4
+                     (Y.Visited'Access, B'Unrestricted_Access, 1) then
+                  goto Try;
+               end if;
+            end if;
+
+            Position := (Container'Unchecked_Access, Y);
+            return;
+         end if;
+
+         --  New Node
+         --  TODO Atomic
+         Y := new Node_Type'(null, New_Item, 1);
+         Y.Forward := new Node_Array (0 .. New_Level);
+         Y.Forward.all := (0 => X, 1 => X.Forward (1), others => null);
+
+         --  FIXME Link to List
          X.Forward (1) := Y;
+
          if Y.Forward (1) = null then
             Container.Tail := Y;
          end if;
+         --  Call AUX Task to Link Y' Forwards
+         --  Link (Y);
          Container.Length := Container.Length + 1;
          Position := (Container'Unchecked_Access, Y);
       end;
    end Insert;
 
-   --  Helper
-   procedure Remove (Container : in out List; Item : Element_Type);
-   --  TODO  Reset Container.Tail
-   procedure Remove (Container : in out List; Item : Element_Type) is
-      X : Node_Access;
-      Update : Node_Array (1 .. Container.Level) := (others => null);
+   procedure Delete (Node : in out Node_Access);
+   procedure Delete (Node : in out Node_Access) is
    begin
-      X := Container.Header;
-      if Container.Header.Element = Item then
-         Container.Header := X.Forward (1);
-         --  FIXME ???
-         --  Swap Forwards
-         if Container.Header /= null then
-            X.Forward (X.Forward (1).Forward'Range) :=
-               Container.Header.Forward.all;
-            Free (Container.Header.Forward);
-            Container.Header.Forward := X.Forward;
-         else
-            Free (X.Forward);
+      declare
+         B : B4;
+      begin
+         Atomic_Thread_Fence;
+         if Node.Visited > 0 then
+            B := Atomic_Fetch_Sub_4 (Node.Visited'Access, 1);
          end if;
-         Free (X);
-         Container.Length := Container.Length - 1;
-         return;
-      end if;
-
-      for j in reverse 1 .. Container.Current_Level loop
-         loop
-            exit when X.Forward (j) = null;
-            exit when Compare (X.Forward (j).Element, Item) > 0;
-            X := X.Forward (j);
-         end loop;
-         Update (j) := X;
-      end loop;
-      --  TODO and FIXME
-      --  A node with Lock > 1 means there are visitor, don't remove it,
-      --  Decrement lock instead. If Is_One then is fine to deallocate
-      if X.Forward (1) /= null and then X.Forward (1).Element = Item then
-         X.Forward (1).Forward (0) := X;
-         for j in 1 .. Container.Current_Level  loop
-            exit when Update (j).Forward (j) /= X;
-            Update (j).Forward (j) := X.Forward (j);
-         end loop;
-
-         while Container.Current_Level > 0 and then
-            Container.Header.Forward (Container.Current_Level) = null loop
-               Container.Current_Level := Container.Current_Level - 1;
-         end loop;
-
-         Container.Length := Container.Length - 1;
-         if X.Forward /= null then
-            Free (X.Forward);
-         end if;
-         Free (X);
-      end if;
-   end Remove;
+      end;
+   end Delete;
 
    procedure Delete (Container : in out List; Position : in out Cursor) is
    begin
-      if Position.Node = null then
-         Position := No_Cursor;
-         return;
+      if Position.Node /= null then
+         Delete (Position.Node);
       end if;
-      Remove (Container, Position.Node.Element);
       Position := No_Cursor;
    end Delete;
 
    --  TODO
    procedure Delete_Last (Container : in out List; Count : Positive := 1) is
+      C : Positive := Count;
+      X : Node_Access;
    begin
-         if Count > Container.Length then
-            Container.Clear;
+      loop
+         X := Container.Tail;
+         exit when X = null;
+         if Compare_Exchange
+            (Container.Tail'Unrestricted_Access, X, X.Forward (0)) then
+            Delete (X);
+            exit when C = 1;
+            C := C - 1;
          end if;
-
+      end loop;
    end Delete_Last;
 
    function Iterate (Container : List)
       return List_Iterator_Interfaces.Reversible_Iterator'class is
-      B : Natural renames Container'Unrestricted_Access.all.Busy;
+      B : B4;
+      pragma Unreferenced (B);
    begin
       return It : constant Iterator :=
          Iterator'(Limited_Controlled with
          Container => Container'Unrestricted_Access,
          Node      => Container.Header)
          do
-            B := B + 1;
+            null;
+            --  Atomic_Thread_Fence;
+            --  B := Atomic_Fetch_Add_4 (Container.Header.Visited'Access, 1);
+            --  Atomic_Thread_Fence;
          end return;
    end Iterate;
 
    function Iterate (Container : List; Start : Cursor)
       return List_Iterator_Interfaces.Reversible_Iterator'class is
-      B : Natural renames Container'Unrestricted_Access.all.Busy;
+      B : B4;
+      pragma Unreferenced (B);
    begin
       if Start = No_Cursor then
          raise Constraint_Error with
@@ -304,7 +317,9 @@ package body Skip_List is
             Container => Container'Unrestricted_Access,
             Node      => Start.Node)
             do
-               B := B + 1;
+               --  Atomic_Thread_Fence;
+               B := Atomic_Fetch_Add_4 (Start.Node.Visited'Access, 1);
+               --  Atomic_Thread_Fence;
             end return;
       end if;
    end Iterate;
@@ -317,84 +332,163 @@ package body Skip_List is
          end if;
          return No_Cursor;
       end if;
-      return Cursor'(Container'Unrestricted_Access, Container.Header);
+      declare
+         X : Node_Access := Container.Header;
+         --  B : B4;
+      begin
+         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+            X := X.Forward (1);
+            exit when X = null;
+         end loop;
+         --  TODO Visit
+         --  B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
+         return Cursor'(Container'Unrestricted_Access, X);
+      end;
    end First;
 
    function First_Element (Container : List) return Element_Type is
    begin
       if Container.Header = null then
-         raise Constraint_Error with "List is empty";
+         raise Program_Error with "List is Empty";
       end if;
-      return Container.Header.Element;
+
+      declare
+         X : Node_Access := Container.Header;
+      begin
+         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+            X := X.Forward (1);
+            exit when X = null;
+         end loop;
+         if X = null then
+            raise Program_Error with "No element valid";
+         end if;
+         return X.Element;
+      end;
    end First_Element;
 
    function Last (Container : List) return Cursor is
    begin
       if Container.Tail = null then
          if Container.Length > 0 then
-            raise Program_Error with "Null Tail while Length > 0";
+            raise Program_Error with "Null Tail with Length > 0";
          end if;
          return No_Cursor;
       end if;
-      return (Container'Unrestricted_Access, Container.Tail);
+      declare
+         X : Node_Access := Container.Tail;
+      begin
+         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+            X := X.Forward (0);
+            exit when X = null;
+         end loop;
+         return Cursor'(Container'Unrestricted_Access, X);
+      end;
    end Last;
 
    function Last_Element (Container : List) return Element_Type is
    begin
       if Container.Tail = null then
-         raise Constraint_Error with "List is empty";
+         raise Program_Error with "List is Empty";
       end if;
-      return Container.Tail.Element;
+
+      declare
+         X : Node_Access := Container.Tail;
+      begin
+         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+            X := X.Forward (0);
+            exit when X = null;
+         end loop;
+         if X = null then
+            raise Program_Error with "No element valid";
+         end if;
+         return X.Element;
+      end;
    end Last_Element;
 
    function Next (Position : Cursor) return Cursor is
+      X : Node_Access := Position.Node;
    begin
-      if Position.Node /= null and then
-         Position.Node.Forward (1) /= null then
-         return Cursor'(Position.Container, Position.Node.Forward (1));
+      if X = null then
+         return No_Cursor;
       end if;
+
+      X := X.Forward (1);
+
+      while X /= null loop
+         exit when Atomic_Load_4 (X.Visited'Access) /= 0;
+         X := X.Forward (1);
+      end loop;
+
+      if X = null then
+         return No_Cursor;
+      end if;
+
+      if Atomic_Load_4 (X.Visited'Access) /= 0 then
+         return Cursor'(Position.Container, X);
+      end if;
+
       return No_Cursor;
    end Next;
 
    procedure Next (Position : in out Cursor) is
    begin
-      if Position.Node /= null and then
-         Position.Node.Forward (1) /= null then
-         Position.Node := Position.Node.Forward (1);
-         return;
-      end if;
-      Position := No_Cursor;
+      Position := Next (Position);
    end Next;
 
    function Previous (Position : Cursor) return Cursor is
+      X : Node_Access := Position.Node;
    begin
-      if Position.Node /= null and then
-         Position.Node.Forward (0) /= null then
-         return Cursor'(Position.Container, Position.Node.Forward (0));
+      if X = null then
+         return No_Cursor;
       end if;
+
+      X := X.Forward (0);
+
+      while X /= null loop
+         exit when Atomic_Load_4 (X.Visited'Access) /= 0;
+         X := X.Forward (0);
+      end loop;
+
+      if X = null then
+         return No_Cursor;
+      end if;
+
+      if Atomic_Load_4 (X.Visited'Access) /= 0 then
+         return Cursor'(Position.Container, X);
+      end if;
+
       return No_Cursor;
    end Previous;
 
    procedure Previous (Position : in out Cursor) is
    begin
-      if Position.Node /= null and then
-         Position.Node.Forward (0) /= null then
-         Position.Node := Position.Node.Forward (0);
-         return;
-      end if;
-      Position := No_Cursor;
+      Position := Previous (Position);
    end Previous;
 
    function Find (Container : List; Item : Element_Type) return Cursor is
       X : Node_Access;
+      B : B4;
+      pragma Unreferenced (B);
    begin
       if Container.Header = null then
          raise Constraint_Error with "List is empty";
       end if;
       X := Container.Header;
-      if X.Element = Item then
-         return Container.First;
+      if Compare (X.Element, Item) > 0 then
+         return No_Cursor;
       end if;
+
+      if X.Element = Item then
+         if  Atomic_Load_4 (X.Visited'Access) > 0 then
+            --  TODO Visit
+            --  B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
+            return Cursor'(Container'Unrestricted_Access, X);
+         else
+            --  Node is tired
+            return No_Cursor;
+         end if;
+      end if;
+      --  TODO Atomic
       for j in reverse 1 .. Container.Current_Level loop
          loop
             exit when X.Forward (j) = null;
@@ -402,52 +496,28 @@ package body Skip_List is
             X := X.Forward (j);
          end loop;
       end loop;
-      if X.Element = Item then
+
+      if X.Element = Item and then Atomic_Load_4 (X.Visited'Access) > 0 then
+         --  TODO Visit
+         --  B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
          return Cursor'(Container'Unrestricted_Access, X);
       end if;
       return No_Cursor;
    end Find;
 
    function Contains (Container : List; Item : Element_Type) return Boolean is
-      X : Node_Access;
    begin
-      X := Container.Header;
-      for j in reverse 1 .. Container.Current_Level loop
-         loop
-            exit when X.Forward (j) = null;
-            exit when Compare (X.Forward (j).Element, Item) > 0;
-            X := X.Forward (j);
-         end loop;
-      end loop;
-      if X.Element = Item then
-         return True;
-      end if;
-      return False;
+      return  Find (Container, Item) /= No_Cursor;
    end Contains;
-
-   --procedure Adjust (Control : in out Reference_Control_Type) is
-   --begin
-   --   if Control.Node /= null then
-   --      System.Atomic_Counters.Increment (Control.Node.Lock);
-   --   end if;
-   --end Adjust;
-
-   --procedure Finalize (Control : in out Reference_Control_Type) is
-   --   Is_Zero : Boolean;
-   --   pragma Unreferenced (Is_Zero);
-   --begin
-   --   if Control.Node /= null then
-   --      Is_Zero := System.Atomic_Counters.Decrement (Control.Node.Lock);
-   --   end if;
-   --end Finalize;
 
    procedure Finalize (Object : in out Iterator) is
    begin
       if Object.Container /= null then
          declare
-            B : Natural renames Object.Container.all.Busy;
+            B : B4;
+            pragma Unreferenced (B);
          begin
-            B := B - 1;
+            B := Atomic_Fetch_Sub_4 (Object.Node.Visited'Access, 1);
          end;
       end if;
    end Finalize;
