@@ -9,7 +9,8 @@ generic
    with function Compare (Left, Right : Element_Type) return Integer is <>;
 
 package Skip_List is
-   type List (Level : Positive) is tagged limited private with
+   subtype Level_type is Integer range 1 .. 63;
+   type List (Level : Level_type) is tagged limited private with
       --  Constant_Indexing => Constant_Reference,
       --  Variable_Indexing => Reference,
       Default_Iterator  => Iterate,
@@ -65,11 +66,9 @@ package Skip_List is
    procedure Delete_Last (Container : in out List; Count : Positive := 1);
 
    function Iterate (Container : List)
-      --  return List_Iterator_Interfaces.Forward_Iterator'class;
       return List_Iterator_Interfaces.Reversible_Iterator'class;
 
    function Iterate (Container : List; Start : Cursor)
-      --  return List_Iterator_Interfaces.Forward_Iterator'class;
       return List_Iterator_Interfaces.Reversible_Iterator'class;
 
    --  TODO Splice
@@ -108,25 +107,25 @@ private
    use Atomic_Value;
    type Node_Type;
    type Node_Access is access Node_Type;
+   --  BUG
+   --  pragma Atomic (Node_Access);
    type Node_Array is array (Natural range <>) of Node_Access;
    pragma Atomic_Components (Node_Array);
-   type Node_Array_Access is access Node_Array;
+
+   type Node_Array_Access is access all Node_Array;
 
    type Node_Type is record
+      Visited : aliased B4;   -- B8?
       Forward : Node_Array_Access;
       Element : aliased Element_Type;
-      Visited : aliased B4;   -- B8?
    end record;
 
-   type List (Level : Positive) is new Limited_Controlled with
+   type List (Level : Level_type) is new Limited_Controlled with
       record
-         Header : Node_Access;
-         pragma Atomic (Header);
-         Tail   : Node_Access;
-         pragma Atomic (Tail);
-         Length : Natural;
+         Skip          : Node_Array_Access;
+         Length        : Natural;
          pragma Atomic (Length);
-         Current_Level   : Natural;
+         Current_Level : Natural;
          pragma Atomic (Current_Level);
       end record;
 
@@ -143,7 +142,7 @@ private
       end record;
 
    Empty_List : constant List :=
-               (Limited_Controlled with 1, null, null, 0, 0);
+               (Limited_Controlled with 1, null, 0, 0);
    No_Cursor  : constant Cursor := Cursor'(null, null);
 
    type Iterator is new Limited_Controlled

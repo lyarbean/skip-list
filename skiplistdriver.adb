@@ -25,19 +25,26 @@ begin
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
       --  Ada.Text_IO.Put_Line (skiplist.Last_Element.K'Img);
    end loop;
+   for j in -(2 ** 5) .. -1 loop
+      skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
+   end loop;
+
    Ada.Text_IO.Put_Line ("Done Insert");
-   --  for c : Constant_Reference of skiplist loop
-   --     exit when c.K = 1000;
-   --     Ada.Text_IO.Put_Line (c.K'Img & c.V'Img);
-   --  end loop;
+   Ada.Text_IO.Put_Line (skiplist.First_Element.K'Img & skiplist.First_Element.V'Img);
+   Ada.Text_IO.Flush;
+   Ada.Text_IO.Put_Line ("Iterate 1");
+   for j in skiplist.Iterate loop
+      Ada.Text_IO.Put_Line (SL.Element (j).K'Img & SL.Element (j).V'Img);
+   end loop;
+
    Ada.Text_IO.Put_Line ("Find");
 
    r := skiplist.Find (Element'(256, 256 ** 2));
    if r /= No_Cursor then
-      Ada.Text_IO.Put_Line (SL.Element(r).K'Img);
+      Ada.Text_IO.Put_Line (SL.Element (r).K'Img);
       Next (r);
    end if;
-   Ada.Text_IO.Put_Line (SL.Element(r).K'Img);
+   Ada.Text_IO.Put_Line (SL.Element (r).K'Img);
    r := skiplist.First;
 
    while r /= No_Cursor loop
@@ -52,8 +59,8 @@ begin
    --     Ada.Text_IO.Put_Line (c.K'Img & c.V'Img);
    --  end loop;
 
-   Ada.Text_IO.Put_Line ("Iterate");
+   Ada.Text_IO.Put_Line ("Iterate 2");
    for j in skiplist.Iterate loop
-      Ada.Text_IO.Put_Line (SL.Element(j).K'Img & SL.Element(j).V'Img);
+      Ada.Text_IO.Put_Line (SL.Element (j).K'Img & SL.Element (j).V'Img);
    end loop;
 end skiplistdriver;

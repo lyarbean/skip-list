@@ -1,6 +1,8 @@
 package Atomic_Value is
    type B4 is mod 2 ** 32 with Size => 32;
+   pragma Atomic (B4);
    type B8 is mod 2 ** 64 with Size => 64;
+   pragma Atomic (B8);
    Relaxed : constant := 0;
    Consume : constant := 1;
    Acquire : constant := 2;
