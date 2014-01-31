@@ -107,8 +107,7 @@ private
    use Atomic_Value;
    type Node_Type;
    type Node_Access is access Node_Type;
-   --  BUG
-   --  pragma Atomic (Node_Access);
+
    type Node_Array is array (Natural range <>) of Node_Access;
    pragma Atomic_Components (Node_Array);
 

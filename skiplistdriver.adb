@@ -19,16 +19,18 @@ procedure skiplistdriver is
    skiplist : List (9);
 
    r, rr : Cursor;
-
+   c : integer := 0;
 begin
-   for j in 1 .. 2 ** 10 loop
+   for j in 1 .. 2 ** 15 loop
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
       --  Ada.Text_IO.Put_Line (skiplist.Last_Element.K'Img);
    end loop;
+   Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
    for j in -(2 ** 5) .. -1 loop
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
    end loop;
-
+   Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
+   r := skiplist.First;
    Ada.Text_IO.Put_Line ("Done Insert");
    Ada.Text_IO.Put_Line (skiplist.First_Element.K'Img & skiplist.First_Element.V'Img);
    Ada.Text_IO.Flush;
@@ -51,16 +53,15 @@ begin
       rr := Next (r);
       exit when SL.Element (rr).K = 1000;
       skiplist.Delete (r);
+      c := c + 1;
       r := rr;
    end loop;
-   Ada.Text_IO.Put_Line ("Done Delete");
-
-   --  for c : Constant_Reference of skiplist loop
-   --     Ada.Text_IO.Put_Line (c.K'Img & c.V'Img);
-   --  end loop;
+   Ada.Text_IO.Put_Line ("Done Delete " & c'Img);
 
    Ada.Text_IO.Put_Line ("Iterate 2");
    for j in skiplist.Iterate loop
       Ada.Text_IO.Put_Line (SL.Element (j).K'Img & SL.Element (j).V'Img);
    end loop;
+
+   Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
 end skiplistdriver;

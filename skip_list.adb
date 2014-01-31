@@ -4,13 +4,7 @@ with Ada.Numerics.Float_Random;
 with Ada.Unchecked_Deallocation;
 with Ada.Unchecked_Conversion;
 with Ada.Text_IO;
-with System;
-use type System.Address;
 
----------------------------
---  ISSUES
---  1. Are FENCES required?
----------------------------
 package body Skip_List is
    procedure Free is new Ada.Unchecked_Deallocation (Node_Type, Node_Access);
    procedure Free is
@@ -65,8 +59,11 @@ package body Skip_List is
          X := Y;
       end loop;
       Free (Container.Skip);
+      Ada.Text_IO.Put_Line ("Finalized");
    end Finalize;
 
+   procedure Link (Node : Node_Access);
+   procedure Link (Node : Node_Access) is null;
    ----------------
    --  External  --
    ----------------
@@ -90,7 +87,7 @@ package body Skip_List is
 
    function "=" (Left, Right : List) return Boolean is
    begin
-      return Left'Address = Right'Address;
+      return Left.Skip = Right.Skip;
    end "=";
 
    function Length (Container : List) return Natural is
@@ -166,8 +163,9 @@ package body Skip_List is
          --  If Forward is set, then set Backward, for Skip
          R := Compare_Exchange (Container.Skip (0)'Unrestricted_Access, X, Z);
          if not R then
-            raise Program_Error with "Fail one CAS Y";
+            raise Program_Error with "Fail one CAS Z";
          end if;
+         Ada.Text_IO.Put_Line ("Skip");
          Container.Length := 1;
          Container.Current_Level := 1;
          Position := Cursor'(Container'Unrestricted_Access, Z);
@@ -186,6 +184,34 @@ package body Skip_List is
       Z.Forward.all := (others => null);
 
       X := Container.Skip (1);
+      --  (Z = X)
+      if Compare (X.Element, New_Item) = 0 then
+         if Atomic_Load_4 (X.Visited'Access) = 0 then
+            B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
+         end if;
+         Position := (Container'Unchecked_Access, X);
+         goto FreeZ;
+      end if;
+
+      X := Container.Skip (1);
+      --  Z --> X
+      if Compare (X.Element, New_Item) > 0 then
+         Z.Forward (1) := X;
+         if not Compare_Exchange
+            (Container.Skip (1)'Unrestricted_Access, X, Z) then
+            Free (Z.Forward);
+            Free (Z);
+            goto Start;
+         end if;
+         X.Forward (0) := Z;
+         Container.Length := Container.Length + 1;
+         if New_Level > Container.Current_Level then
+            Container.Current_Level := New_Level;
+         end if;
+         Position := Cursor'(Container'Unrestricted_Access, Z);
+         Link (Z);
+         return;
+      end if;
 
       --  X ----------> Y := X.F
       --  X -- > Z -- > Y
@@ -237,13 +263,12 @@ package body Skip_List is
             end if;
          end if;
          Z.Forward (0) := X;
-         --  TODO Link (N)
          if New_Level > Container.Current_Level then
             Container.Current_Level := New_Level;
          end if;
          Container.Length := Container.Length + 1;
          Position := Cursor'(Container'Unrestricted_Access, Z);
-         --  Link (N)
+         Link (Z);
          return;
       else
          --  A node has been inserted as X.Forward (1),
@@ -257,31 +282,34 @@ package body Skip_List is
       Free (Z);
    end Insert;
 
-   function Delete (Node : in out Node_Access) return Boolean;
-   function Delete (Node : in out Node_Access) return Boolean is
+   function Delete (Node : Node_Access) return Boolean;
+   function Delete (Node : Node_Access) return Boolean is
+      B : aliased B4;
+      R : Boolean;
    begin
-      declare
-         B : B4;
-      begin
-         if Atomic_Load_4 (Node.Visited'Access) > 0 then
-            B := Atomic_Fetch_Sub_4 (Node.Visited'Access, 1);
+      <<Try>>
+      B := Atomic_Load_4 (Node.Visited'Access);
+      if B > 0 then
+         R := Atomic_Compare_Exchange_4
+            (Node.Visited'Access, B'Access, B - 1);
+         if R then
             return True;
          end if;
-         return False;
-      end;
+         goto Try;
+      end if;
+      return False;
    end Delete;
 
    procedure Delete (Container : in out List; Position : in out Cursor) is
    begin
       if Position.Node /= null then
          if Delete (Position.Node) then
-            null;
+            Container.Length := Container.Length - 1;
          end if;
       end if;
       Position := No_Cursor;
    end Delete;
 
-   --  TODO
    procedure Delete_Last (Container : in out List; Count : Positive := 1) is
       C : Positive := Count;
       X : Node_Access;
@@ -293,7 +321,7 @@ package body Skip_List is
             Container.Length := Container.Length - 1;
             C := C - 1;
          end if;
-         exit when C = 1;
+         exit when C = 0;
       end loop;
    end Delete_Last;
 
@@ -305,14 +333,7 @@ package body Skip_List is
       return It : constant Iterator :=
          Iterator'(Limited_Controlled with
          Container => Container'Unrestricted_Access,
-         Node      => Container.Skip (1))
-         do
-            null;
-            --  FIXME
-            --  Atomic_Thread_Fence;
-            --  B := Atomic_Fetch_Add_4 (Container.Skip (1).Visited'Access, 1);
-            --  Atomic_Thread_Fence;
-         end return;
+         Node      => null);
    end Iterate;
 
    function Iterate (Container : List; Start : Cursor)
@@ -333,7 +354,7 @@ package body Skip_List is
             Node      => Start.Node)
             do
                --  Atomic_Thread_Fence;
-               B := Atomic_Fetch_Add_4 (Start.Node.Visited'Access, 1, Relaxed);
+               B := Atomic_Fetch_Add_4 (Start.Node.Visited'Access, 1);
                --  Atomic_Thread_Fence;
             end return;
       end if;
@@ -343,7 +364,7 @@ package body Skip_List is
    begin
       if Container.Skip (1) = null then
          if Container.Length > 0 then
-            raise Program_Error with "Null Header while Length > 0";
+            raise Program_Error with "Null Skip (1) while Length > 0 ";
          end if;
          return No_Cursor;
       end if;
@@ -371,7 +392,7 @@ package body Skip_List is
          X : Node_Access := Container.Skip (1);
       begin
          loop
-            exit when X.Visited /= 0;
+            exit when Atomic_Load_4 (X.Visited'Access) /= 0;
             X := X.Forward (1);
             exit when X = null;
          end loop;
