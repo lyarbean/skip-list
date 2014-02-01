@@ -21,7 +21,7 @@ procedure skiplistdriver is
    r, rr : Cursor;
    c : integer := 0;
 begin
-   for j in 1 .. 2 ** 15 loop
+   for j in 1 .. 2 ** 9 loop
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
       --  Ada.Text_IO.Put_Line (skiplist.Last_Element.K'Img);
    end loop;
@@ -51,7 +51,7 @@ begin
 
    while r /= No_Cursor loop
       rr := Next (r);
-      exit when SL.Element (rr).K = 1000;
+      exit when SL.Element (r).K = 2000;
       skiplist.Delete (r);
       c := c + 1;
       r := rr;

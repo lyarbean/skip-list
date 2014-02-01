@@ -62,8 +62,32 @@ package body Skip_List is
       Ada.Text_IO.Put_Line ("Finalized");
    end Finalize;
 
-   procedure Link (Node : Node_Access);
-   procedure Link (Node : Node_Access) is null;
+   --  TODO Atomic
+   procedure Link (Container : in out List; Node : not null Node_Access);
+   procedure Link (Container : in out List; Node : not null Node_Access) is
+      X : Node_Access := null;
+   begin
+      Atomic_Thread_Fence;
+      for j in reverse 2 .. Container.Current_Level loop
+            if Container.Skip (j) = null and then j in Node.Forward'Range then
+               Container.Skip (j) := Node;
+            else
+               if X = null then
+                  X := Container.Skip (j);
+               end if;
+               loop
+                  exit when X.Forward (j) = null;
+                  exit when Compare (X.Forward (j).Element, Node.Element) > 0;
+                  X := X.Forward (j);
+               end loop;
+               if j in Node.Forward'Range then
+                  Node.Forward (j) := X.Forward (j);
+                  X.Forward (j) := Node;
+               end if;
+            end if;
+      end loop;
+      Atomic_Thread_Fence;
+   end Link;
    ----------------
    --  External  --
    ----------------
@@ -177,8 +201,8 @@ package body Skip_List is
       while NFR.Random (G) < 0.5 loop
          exit Random_Level when New_Level >= Container.Level;
          New_Level := New_Level + 1;
+         --  Ada.Text_IO.Put_Line ("Random_Level");
       end loop Random_Level;
-
       Z := new Node_Type'(1, null, New_Item);
       Z.Forward := new Node_Array (0 .. New_Level);
       Z.Forward.all := (others => null);
@@ -194,6 +218,8 @@ package body Skip_List is
       end if;
 
       X := Container.Skip (1);
+      --  Front_push
+      --  Link Forwards in place
       --  Z --> X
       if Compare (X.Element, New_Item) > 0 then
          Z.Forward (1) := X;
@@ -204,12 +230,17 @@ package body Skip_List is
             goto Start;
          end if;
          X.Forward (0) := Z;
+         Z.Forward (2 .. Z.Forward'Last) := Container.Skip (2 .. Z.Forward'Last);
+         for j in 2 .. X.Forward'Last loop
+            R := Compare_Exchange
+            (Container.Skip (j)'Unrestricted_Access, X, Z);
+         end loop;
+
          Container.Length := Container.Length + 1;
          if New_Level > Container.Current_Level then
             Container.Current_Level := New_Level;
          end if;
          Position := Cursor'(Container'Unrestricted_Access, Z);
-         Link (Z);
          return;
       end if;
 
@@ -245,7 +276,7 @@ package body Skip_List is
          goto FreeZ;
       end if;
 
-      --  X --> Z --> Y
+      --  X --> Z --> Y (*|null)
       Y := X.Forward (1);
       Z.Forward (1) := Y;
       R := Compare_Exchange (X.Forward (1)'Unrestricted_Access, Y, Z);
@@ -268,7 +299,7 @@ package body Skip_List is
          end if;
          Container.Length := Container.Length + 1;
          Position := Cursor'(Container'Unrestricted_Access, Z);
-         Link (Z);
+         Link (Container, Z);
          return;
       else
          --  A node has been inserted as X.Forward (1),
@@ -535,8 +566,6 @@ package body Skip_List is
       end loop;
 
       if X.Element = Item and then Atomic_Load_4 (X.Visited'Access) > 0 then
-         --  TODO Visit
-         --  B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
          return Cursor'(Container'Unrestricted_Access, X);
       end if;
       return No_Cursor;
