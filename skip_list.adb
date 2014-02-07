@@ -64,11 +64,13 @@ package body Skip_List is
       Ada.Text_IO.Put_Line ("Finalized");
    end Finalize;
 
-   --  TODO Atomic
+   -------------
+   --  Linker --
+   -------------
    protected Linker is
       entry  Link (Container  : in out List;
                    Node       : not null Node_Access;
-                   Precedings : in out not null Node_Array_Access);
+                   P          : in out Node_Array_Access);
    private
       Busy : Boolean := False;
    end Linker;
@@ -77,15 +79,15 @@ package body Skip_List is
    protected body Linker is
       entry Link (Container  : in out List;
                   Node       : not null Node_Access;
-                  Precedings : in out not null Node_Array_Access)
+                  P          : in out Node_Array_Access)
       when not Busy is
          X, Y : Node_Access := null;
          R    : Boolean;
          C    : Integer;
-         P    : Node_Array_Access renames Precedings;
       begin
+         pragma Assert (P /= null);
          if Node.Forward'Last = 1 then
-            --  Free (Precedings);
+            Free (P);
             return;
          end if;
          Busy := True;
@@ -111,12 +113,15 @@ package body Skip_List is
             end if;
 
             if X /= null then
-
                C := Compare (X.Element, Node.Element);
 
                if C = 0 then
-                  raise Program_Error with "Duplicated Element";
-                  --  goto Next_J?
+                  if X /= Node then
+                     raise Program_Error with "Duplicated Element";
+                  else
+                     Ada.Text_IO.Put_Line ("Bug, overlap");
+                     goto Next_J;
+                  end if;
                end if;
 
                if C > 0 then
@@ -130,16 +135,20 @@ package body Skip_List is
                R := False;
                loop
                   Y := X.Forward (j);
-                  if Y /= null
-                     and then Compare (Y.Element, Node.Element) = 0 then
-                     raise Program_Error with "Duplicated Element";
-                  end if;
+                  while Y /= null loop
+                     C := Compare (Y.Element, Node.Element);
+                     if C = 0 then
+                        raise Program_Error with "Duplicated Element";
+                     end if;
+                     exit when C > 0;
+                     X := Y;
+                     Y := X.Forward (j);
+                  end loop;
+
                   R := Compare_Exchange
                      (X.Forward (j)'Unrestricted_Access, Y, Node);
                   if not R then
-                     if Compare (X.Forward (j).Element, Node.Element) < 0 then
-                        X := X.Forward (j);
-                     end if;
+                     goto Try;
                   else
                      Node.Forward (j) := Y;
                   end if;
@@ -151,7 +160,7 @@ package body Skip_List is
          if Container.Current_Level < Node.Forward'Last then
             Container.Current_Level := Node.Forward'Last;
          end if;
-         --  Free (Precedings);
+         Free (P);
          Busy := False;
       end Link;
    end Linker;
@@ -189,7 +198,6 @@ package body Skip_List is
       if Position.Node = null then
          return False;
       end if;
-      Atomic_Thread_Fence;
       return Atomic_Load_4 (Position.Node.Visited'Access) > 0;
    end Is_Valid;
 
@@ -217,7 +225,6 @@ package body Skip_List is
       X := Container.Skip (1);
       while X /= null loop
          Atomic_Store_4 (X.Visited'Access, 0);
-         --  X.Visited := 0;
          X := X.Forward (1);
       end loop;
       Container.Length := 0;
@@ -427,20 +434,20 @@ package body Skip_List is
 
    function Delete (Node : Node_Access) return Boolean;
    function Delete (Node : Node_Access) return Boolean is
-      B : aliased B4;
-      R : Boolean;
+      B : B4;
+      R : Boolean := False;
    begin
-      <<Try>>
-      B := Atomic_Load_4 (Node.Visited'Access);
-      if B > 0 then
-         R := Atomic_Compare_Exchange_4
-            (Node.Visited'Access, B'Access, B - 1);
-         if R then
-            return True;
+      loop
+         B := Atomic_Load_4 (Node.Visited'Access);
+         if B > 0 then
+            R := Atomic_Compare_Exchange_4
+               (Node.Visited'Access, B'Unrestricted_Access, B - 1);
+         else
+            return False;
          end if;
-         goto Try;
-      end if;
-      return False;
+         exit when R;
+      end loop;
+      return R;
    end Delete;
 
    procedure Delete (Container : in out List; Position : in out Cursor) is
@@ -482,7 +489,7 @@ package body Skip_List is
    function Iterate (Container : List; Start : Cursor)
       return List_Iterator_Interfaces.Reversible_Iterator'class is
       B : B4;
-      pragma Unreferenced (B);
+      R : Boolean := False;
    begin
       if Start = No_Cursor then
          raise Constraint_Error with
@@ -496,9 +503,13 @@ package body Skip_List is
             Container => Container'Unrestricted_Access,
             Node      => Start.Node)
             do
-               --  Atomic_Thread_Fence;
-               B := Atomic_Fetch_Add_4 (Start.Node.Visited'Access, 1);
-               --  Atomic_Thread_Fence;
+               loop
+                  B := Atomic_Load_4 (Start.Node.Visited'Access);
+                  pragma Assert (B >= 0, "Node is invalid");
+                  R := Atomic_Compare_Exchange_4
+                     (Start.Node.Visited'Access, B'Unrestricted_Access, B + 1);
+                  exit when R;
+               end loop;
             end return;
       end if;
    end Iterate;
@@ -513,7 +524,6 @@ package body Skip_List is
       end if;
       declare
          X : Node_Access := Container.Skip (1);
-         --  B : B4;
       begin
          while Atomic_Load_4 (X.Visited'Access) = 0 loop
             X := X.Forward (1);
@@ -690,15 +700,18 @@ package body Skip_List is
 
    procedure Finalize (Object : in out Iterator) is
    begin
-      if Object.Container /= null then
+      if Object.Container /= null and then Object.Node /= null then
          declare
             B : B4;
-            pragma Unreferenced (B);
+            R : Boolean;
          begin
-            --  FIXME
-            if Object.Node /= null then
-               B := Atomic_Fetch_Sub_4 (Object.Node.Visited'Access, 1);
-            end if;
+               loop
+                  B := Atomic_Load_4 (Object.Node.Visited'Access);
+                  pragma Assert (B >= 1, "Node is invalid");
+                  R := Atomic_Compare_Exchange_4
+                     (Object.Node.Visited'Access, B'Unrestricted_Access, B - 1);
+                  exit when R;
+               end loop;
          end;
       end if;
    end Finalize;
@@ -740,7 +753,7 @@ package body Skip_List is
       --  shape = "record"]
       --  "Node${i}":f0 -> Node#{i}${i}f#{i}[id = #{id++}]
       --
-
+      Atomic_Thread_Fence;
       Put_Line (
          "digraph g { graph [rankdir = ""LR""  rank=""same"" ]; " &
          "node [fontsize = ""16"" shape = ""ellipse""];edge [];");
@@ -770,15 +783,19 @@ package body Skip_List is
       while X /= null loop
          Put (To_String (X.Element) & " [label =""");
          Put (To_String (X.Element));
-         Put ("|");
+         --  Put ("|");
          for j in X.Forward'Range loop
             if j /= 0 then
-               Put (" <f");
+               Put ("| <f");
                Put (j, Width => 0);
-               Put ("> |");
+               Put ("> ");
             end if;
          end loop;
-
+         if X.Visited = 0 then
+            Put ("| -");
+         else
+            Put ("| +");
+         end if;
          Put_Line (""" shape =""record""];");
 
          for j in X.Forward'Range loop
@@ -801,6 +818,7 @@ package body Skip_List is
       To_String : access function (E : Element_Type) return String) is
       X : Node_Access;
    begin
+      Atomic_Thread_Fence;
       X := Container.Skip (1);
       while X /= null loop
          for j in 1 .. X.Forward'Last loop
