@@ -4,7 +4,9 @@ with Ada.Numerics.Float_Random;
 with Ada.Unchecked_Deallocation;
 with Ada.Unchecked_Conversion;
 with Ada.Text_IO;
-
+with Ada.Integer_Text_IO;
+with System;
+with System.Address_Image;
 package body Skip_List is
    procedure Free is new Ada.Unchecked_Deallocation (Node_Type, Node_Access);
    procedure Free is
@@ -22,7 +24,7 @@ package body Skip_List is
 
    function Compare_Exchange
       (Dest : access Node_Access; Expetected, Desired : Node_Access)
-   return Boolean is
+      return Boolean is
       function To is new Ada.Unchecked_Conversion (Node_Access, B8);
    begin
       return Atomic_Compare_Exchange_8
@@ -63,31 +65,113 @@ package body Skip_List is
    end Finalize;
 
    --  TODO Atomic
-   procedure Link (Container : in out List; Node : not null Node_Access);
-   procedure Link (Container : in out List; Node : not null Node_Access) is
-      X : Node_Access := null;
-   begin
-      Atomic_Thread_Fence;
-      for j in reverse 2 .. Container.Current_Level loop
-            if Container.Skip (j) = null and then j in Node.Forward'Range then
-               Container.Skip (j) := Node;
-            else
+   protected Linker is
+      entry  Link (Container  : in out List;
+                   Node       : not null Node_Access;
+                   Precedings : in out not null Node_Array_Access);
+   private
+      Busy : Boolean := False;
+   end Linker;
+
+   --  FIXME Incorrect result in Multi-tasking
+   protected body Linker is
+      entry Link (Container  : in out List;
+                  Node       : not null Node_Access;
+                  Precedings : in out not null Node_Array_Access)
+      when not Busy is
+         X, Y : Node_Access := null;
+         R    : Boolean;
+         C    : Integer;
+         P    : Node_Array_Access renames Precedings;
+      begin
+         if Node.Forward'Last = 1 then
+            --  Free (Precedings);
+            return;
+         end if;
+         Busy := True;
+         for j in reverse 2 .. Node.Forward'Last loop
+            <<Try>>
+            X := null;
+            if P (j) = null then
+               R := True;
+               X := Container.Skip (j);
                if X = null then
-                  X := Container.Skip (j);
+                  R := Compare_Exchange
+                     (Container.Skip (j)'Unrestricted_Access, X, Node);
+                  if not R then
+                     pragma Assert
+                        (Container.Skip (j) /= null, "Container.Skip");
+                     X := Container.Skip (j);
+                  else
+                     goto Next_J;
+                  end if;
                end if;
-               loop
-                  exit when X.Forward (j) = null;
-                  exit when Compare (X.Forward (j).Element, Node.Element) > 0;
-                  X := X.Forward (j);
-               end loop;
-               if j in Node.Forward'Range then
-                  Node.Forward (j) := X.Forward (j);
-                  X.Forward (j) := Node;
-               end if;
+            else
+               X := P (j);
             end if;
-      end loop;
-      Atomic_Thread_Fence;
-   end Link;
+
+            if X /= null then
+
+               C := Compare (X.Element, Node.Element);
+
+               if C = 0 then
+                  raise Program_Error with "Duplicated Element";
+                  --  goto Next_J?
+               end if;
+
+               if C > 0 then
+                  R := Compare_Exchange
+                     (Container.Skip (j)'Unrestricted_Access, X, Node);
+                  Node.Forward (j) := X;
+                  goto Next_J;
+               end if;
+
+               --  C < 0
+               R := False;
+               loop
+                  Y := X.Forward (j);
+                  if Y /= null
+                     and then Compare (Y.Element, Node.Element) = 0 then
+                     raise Program_Error with "Duplicated Element";
+                  end if;
+                  R := Compare_Exchange
+                     (X.Forward (j)'Unrestricted_Access, Y, Node);
+                  if not R then
+                     if Compare (X.Forward (j).Element, Node.Element) < 0 then
+                        X := X.Forward (j);
+                     end if;
+                  else
+                     Node.Forward (j) := Y;
+                  end if;
+                  exit when R;
+               end loop;
+            end if;
+            <<Next_J>>
+         end loop;
+         if Container.Current_Level < Node.Forward'Last then
+            Container.Current_Level := Node.Forward'Last;
+         end if;
+         --  Free (Precedings);
+         Busy := False;
+      end Link;
+   end Linker;
+
+   function Activate (Node : Node_Access) return Boolean;
+   function Activate (Node : Node_Access) return Boolean is
+      R : Boolean := False;
+      B : B4;
+   begin
+      B := Atomic_Load_4 (Node.Visited'Access);
+      if B < 0 then
+         raise Program_Error with "Node.Visited < 0";
+      end if;
+      if B = 0 then
+         R := Atomic_Compare_Exchange_4
+            (Node.Visited'Access, B'Unrestricted_Access, 1);
+         pragma Assert (R, "Activate  Node");
+      end if;
+      return (B > 0) or else R;
+   end Activate;
    ----------------
    --  External  --
    ----------------
@@ -167,9 +251,10 @@ package body Skip_List is
       pragma Unreferenced (B);
       X, Y, Z : Node_Access;
       New_Level : Integer := 1;
+      C : Integer;
    begin
       <<Start>>
-      Atomic_Thread_Fence;
+      --  Atomic_Thread_Fence;
       X := Container.Skip (1);
       --  When Container is empty
       if X = null then
@@ -181,133 +266,160 @@ package body Skip_List is
             (Container.Skip (1)'Unrestricted_Access, X, Z) then
             Free (Z.Forward);
             Free (Z);
-            Ada.Text_IO.Put_Line ("Retry");
+            Ada.Text_IO.Put_Line ("Retry and goto Start");
             goto Start;
          end if;
          --  If Forward is set, then set Backward, for Skip
          R := Compare_Exchange (Container.Skip (0)'Unrestricted_Access, X, Z);
          if not R then
-            raise Program_Error with "Fail one CAS Z";
+            raise Program_Error with "Fails to set Skip.0";
          end if;
-         Ada.Text_IO.Put_Line ("Skip");
          Container.Length := 1;
          Container.Current_Level := 1;
          Position := Cursor'(Container'Unrestricted_Access, Z);
          return;
       end if;
 
-      --  Pre-allocate
       Random_Level :
       while NFR.Random (G) < 0.5 loop
-         exit Random_Level when New_Level >= Container.Level;
+         exit Random_Level when New_Level > Container.Current_Level;
          New_Level := New_Level + 1;
-         --  Ada.Text_IO.Put_Line ("Random_Level");
       end loop Random_Level;
+      if New_Level > Container.Level then
+         New_Level := Container.Level;
+      end if;
+
+      --  Allocate new Node
       Z := new Node_Type'(1, null, New_Item);
       Z.Forward := new Node_Array (0 .. New_Level);
       Z.Forward.all := (others => null);
 
+      <<First_Try>>
       X := Container.Skip (1);
-      --  (Z = X)
-      if Compare (X.Element, New_Item) = 0 then
-         if Atomic_Load_4 (X.Visited'Access) = 0 then
-            B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
-         end if;
+      C := Compare (X.Element, New_Item);
+      --  Case 1.
+      --  |-> (Z = X)
+      if C = 0 then
+         R := Activate (X);
          Position := (Container'Unchecked_Access, X);
-         goto FreeZ;
+         return;
       end if;
-
-      X := Container.Skip (1);
-      --  Front_push
-      --  Link Forwards in place
-      --  Z --> X
-      if Compare (X.Element, New_Item) > 0 then
+      --  Case 2.
+      --  NOTE Hint, Try to prepend
+      --  |-> Z --> X
+      if C > 0 then
          Z.Forward (1) := X;
-         if not Compare_Exchange
-            (Container.Skip (1)'Unrestricted_Access, X, Z) then
-            Free (Z.Forward);
-            Free (Z);
-            goto Start;
+         R := Compare_Exchange (Container.Skip (1)'Unrestricted_Access, X, Z);
+         if not R then
+            Ada.Text_IO.Put_Line ("Second_Try");
+            goto First_Try;
          end if;
-         X.Forward (0) := Z;
-         Z.Forward (2 .. Z.Forward'Last) := Container.Skip (2 .. Z.Forward'Last);
-         for j in 2 .. X.Forward'Last loop
-            R := Compare_Exchange
-            (Container.Skip (j)'Unrestricted_Access, X, Z);
-         end loop;
-
+         R := Compare_Exchange (X.Forward (0)'Unrestricted_Access, null, Z);
          Container.Length := Container.Length + 1;
-         if New_Level > Container.Current_Level then
-            Container.Current_Level := New_Level;
-         end if;
          Position := Cursor'(Container'Unrestricted_Access, Z);
+         declare
+            Precedings : Node_Array_Access
+                       := new Node_Array (1 .. Container.Level);
+         begin
+            Precedings.all := (others => null);
+            Linker.Link (Container, Z, Precedings);
+         end;
          return;
       end if;
 
+      <<Third_Try>>
       --  X ----------> Y := X.F
       --  X -- > Z -- > Y
-      --  X := First;
-      --  Try :
-      --  Move on X while X < Z, until X.F is null or X.F > Z and
-      --  Z.F := Y
-      --  if not CAS (X.F, Y) then goto Try; end if;
 
-      <<TrySkip>>
-      pragma Assert (X /= null);
+      --  Find Pivot
+      X := null;
       for j in reverse 1 .. Container.Current_Level loop
-         loop
-            --  In case the Link is not done
-            exit when j not in X.Forward'Range;
-            exit when X.Forward (j) = null;
-            exit when Compare (X.Forward (j).Element, New_Item) > 0;
-            X := X.Forward (j);
-         end loop;
+         if Container.Skip (j) /= null
+            and then Compare (Container.Skip (j).Element, New_Item) < 0 then
+            X := Container.Skip (j);
+            exit;
+         end if;
       end loop;
-      pragma Assert (X /= null);
-
-      --  (X = Z) --> Y
-      --  Activate X
-      if Compare (X.Element, New_Item) = 0 then
-         --  if X.Visited = 0 then
-         if Atomic_Load_4 (X.Visited'Access) = 0 then
-            B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
-         end if;
-         Position := (Container'Unchecked_Access, X);
-         goto FreeZ;
-      end if;
-
-      --  X --> Z --> Y (*|null)
-      Y := X.Forward (1);
-      Z.Forward (1) := Y;
-      R := Compare_Exchange (X.Forward (1)'Unrestricted_Access, Y, Z);
-      if R then
-         if Y /= null then
-            R := Compare_Exchange (Y.Forward (0)'Unrestricted_Access, X, Z);
-            --  if not R, then there is a node inserted between X and Y,
-            --  X    N -- Y
-            --  |         |
-            --  | -- Z -- |
-            --  TODO When does this case occur?
-            --
-            if not R then
-               raise Program_Error with "Racing";
+      pragma Assert (X /= null, "X=null");
+      pragma Assert (Compare (X.Element, New_Item) < 0, "Bad Pivot");
+      declare
+         Precedings : Node_Array_Access;
+      begin
+         Precedings := new Node_Array (1 .. Container.Level);
+         Precedings.all := (others => null);
+         for j in reverse 1 .. X.Forward'Last loop
+            loop
+               exit when X.Forward (j) = null;
+               exit when not (Compare (X.Forward (j).Element, New_Item) < 0);
+               X := X.Forward (j);
+            end loop;
+            --  Y := X.Forward (j);
+            --  if Y /= null and then Compare (Y.Element, New_Item) = 0 then
+            --     R := Activate (Y);
+            --     Position := (Container'Unchecked_Access, Y);
+            --    Ada.Text_IO.Put_Line ("Duplicated found");
+            --     goto FreeZ;
+            --  end if;
+            if Compare (X.Element, New_Item) < 0 then
+               Precedings (j) := X;
+            else
+               Ada.Text_IO.Put_Line ("Someting went wrong");
             end if;
-         end if;
-         Z.Forward (0) := X;
-         if New_Level > Container.Current_Level then
-            Container.Current_Level := New_Level;
-         end if;
-         Container.Length := Container.Length + 1;
-         Position := Cursor'(Container'Unrestricted_Access, Z);
-         Link (Container, Z);
-         return;
-      else
-         --  A node has been inserted as X.Forward (1),
-         --  So go to <<TrySkip>>, and locate a right place
-         Ada.Text_IO.Put_Line ("TrySkip");
-         goto TrySkip;
-      end if;
+         end loop;
 
+         pragma Assert (X /= null);
+
+         for j in 2 .. Z.Forward'Last loop
+            if Precedings (j) /= null then
+               pragma Assert (Compare (Precedings (j).Element, New_Item) < 0,
+               "BAD Precedings");
+               null;
+            end if;
+         end loop;
+         --  (X = Z) --> Y
+         --  Activate X
+
+         if Compare (X.Element, New_Item) = 0 then
+            R := Activate (X);
+            Position := (Container'Unchecked_Access, X);
+            Free (Precedings);
+            goto FreeZ;
+         end if;
+
+         <<Fourth_Try>>
+         --  X --> Z --> Y (*|null)
+         Y := X.Forward (1);
+         Z.Forward (1) := Y;
+         if Y /= null and then Compare (Y. Element, New_Item) = 0 then
+            R := Activate (Y);
+            Position := (Container'Unchecked_Access, Y);
+            Free (Precedings);
+            goto FreeZ;
+         end if;
+         R := Compare_Exchange (X.Forward (1)'Unrestricted_Access, Y, Z);
+         if R then
+            if Y /= null then
+               R := Compare_Exchange (Y.Forward (0)'Unrestricted_Access, X, Z);
+               --  if not R, then there is a node inserted between X and Y,
+               --  X    N -- Y
+               --  |         |
+               --  | -- Z -- |
+               --  TODO When does this case occur?
+               --
+               if not R then
+                  raise Program_Error with "Racing";
+               end if;
+            end if;
+            Z.Forward (0) := X;
+            Container.Length := Container.Length + 1;
+            Position := Cursor'(Container'Unrestricted_Access, Z);
+            Linker.Link (Container, Z, Precedings);
+            return;
+         else
+            Ada.Text_IO.Put_Line ("Goto Third_Try");
+            goto Third_Try;
+         end if;
+      end;
       <<FreeZ>>
       Free (Z.Forward);
       Free (Z);
@@ -617,4 +729,88 @@ package body Skip_List is
       return  Previous (Position);
    end Previous;
 
+   procedure Draw (Container : List;
+      To_String : access function (E : Element_Type) return String) is
+      X : Node_Access;
+      use Ada.Text_IO;
+      use Ada.Integer_Text_IO;
+   begin
+      --  "Node#{i}" [
+      --  label = "<f0> Node${i}| <f1> Node Node#{i}${i} | <f2> .. |"
+      --  shape = "record"]
+      --  "Node${i}":f0 -> Node#{i}${i}f#{i}[id = #{id++}]
+      --
+
+      Put_Line (
+         "digraph g { graph [rankdir = ""LR""  rank=""same"" ]; " &
+         "node [fontsize = ""16"" shape = ""ellipse""];edge [];");
+      --  draw Skip
+      Put ("Node0 [label =""");
+      for j in Container.Skip'Range loop
+         Put (" <f");
+         Put (j, Width => 0);
+         Put ("> ");
+         Put (j, Width => 0);
+         Put (" |");
+      end loop;
+      Put_Line (""" shape =""record""];");
+      for j in Container.Skip'Range loop
+         if j /= 0 and then Container.Skip (j) /= null then
+            Put ("Node0:f");
+            Put (j, Width => 0);
+            Put (" -> " &
+            To_String (Container.Skip (j).Element) & ":f");
+            Put (j, Width => 0);
+            Put (" [];");
+         end if;
+         New_Line;
+      end loop;
+      --  traverse and draw nodes
+      X := Container.Skip (1);
+      while X /= null loop
+         Put (To_String (X.Element) & " [label =""");
+         Put (To_String (X.Element));
+         Put ("|");
+         for j in X.Forward'Range loop
+            if j /= 0 then
+               Put (" <f");
+               Put (j, Width => 0);
+               Put ("> |");
+            end if;
+         end loop;
+
+         Put_Line (""" shape =""record""];");
+
+         for j in X.Forward'Range loop
+            if j /= 0 and then X.Forward (j) /= null then
+               Put (To_String (X.Element) & ":f");
+               Put (j, Width => 0);
+               Put (" -> " &
+               To_String (X.Forward (j).Element) & ":f");
+               Put (j, Width => 0);
+               Put (" [];");
+            end if;
+            New_Line;
+         end loop;
+         X := X.Forward (1);
+      end loop;
+      Put_Line ("}");
+   end Draw;
+
+   procedure Vet (Container : List;
+      To_String : access function (E : Element_Type) return String) is
+      X : Node_Access;
+   begin
+      X := Container.Skip (1);
+      while X /= null loop
+         for j in 1 .. X.Forward'Last loop
+            if X.Forward (j) /= null
+               and then Compare (X.Forward (j).Element, X.Element) < 0 then
+               raise Program_Error with "Vet fails, X =  " &
+               To_String (X.Element) & To_String (X.Forward (j).Element);
+            end if;
+         end loop;
+         X := X.Forward (1);
+      end loop;
+   end Vet;
 end Skip_List;
