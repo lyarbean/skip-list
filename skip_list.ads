@@ -96,7 +96,10 @@ package Skip_List is
    --  procedure Iterate
    --     (Container : List;
    --     Process : not null access procedure (Position : Cursor));
-
+   procedure Vet (Container : List;
+      To_String : access function (E : Element_Type) return String);
+   procedure Draw (Container : List;
+      To_String : access function (E : Element_Type) return String);
 private
    pragma Inline (First);
    pragma Inline (Last);
