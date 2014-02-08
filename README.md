@@ -1,24 +1,30 @@
 Skip List
 =========
+This is a Lock-free skip list implemented in ada, with RM interface.
 
-This is a skip list implemented in ada, with RM interface and Lock-free.
+Author
+======
+颜烈彬
+
+Author
+======
 
 Status
 ======
+*Alpha*
+
 Not Done Yet
 
-Features
+Design
 ========
 1. Non-Removal
-    
-    As LevelDB does, no node physically gets removed from list. A node is removed and becomes invalid if its Visited is 0.
+
+    As LevelDB does, no node physically gets removed from list. A node is removed and becomes invalid if its Visited is 0. However, there is an issue that, as removed nodes may no longer get activated and they get no chance to be reclaimed!
 
 2. CF insertsion
 
-    The CF Skip List, from Crain, Tyler et al, gives a new insert method, simple and fast, just as Doubly linked list does.
-As to maintain the characteristic of Skip list, a lazy selective adaptation is used.
-
-    In our Implementation, DLL insertion is used, but the lazy selective adaptation is not yet implemented. We may introduce to task to accomplish it, but may not as CF does!
+    The CF Skip List, from Crain, Tyler et al, gives a simple and fast method for insertiion, as Doubly linked list (DLL) does.
+In order to maintain the characteristic of Skip list, a lazy selective adaptation is used, which builds Forward Links for new Nodes parallelly.
 
 License
 =======
