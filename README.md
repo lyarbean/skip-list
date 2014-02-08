@@ -6,9 +6,6 @@ Author
 ======
 颜烈彬
 
-Author
-======
-
 Status
 ======
 *Alpha*
