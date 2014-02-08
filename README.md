@@ -1,6 +1,6 @@
 Skip List
 =========
-This is a Lock-free skip list implemented in ada, with RM interface.
+This is a Lock-free skip list implementation in ada, with RM interface.
 
 Author
 ======
