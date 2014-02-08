@@ -260,7 +260,8 @@ package body Skip_List is
       pragma Atomic (X);
       pragma Atomic (Y);
       New_Level : Integer := 1;
-      C : Integer;
+      C : Integer := 0;
+      pragma Atomic (C);
    begin
       <<Start>>
       Atomic_Thread_Fence;
@@ -276,10 +277,13 @@ package body Skip_List is
             --  If Forward is set, then set Backward, for Skip
 
             R := Compare_Exchange (Container.Skip (0)'Unrestricted_Access, X, Z);
-            pragma Assert (R, "Fails to set Skip.0");
+            pragma Assert (R, "Fails to set Skip (0)");
             Container.Length := 1;
             Container.Current_Level := 1;
             Position := Cursor'(Container'Unrestricted_Access, Z);
+            if Z.Forward (1) /= null then
+               Pragma Assert (Compare (Z.Forward (1).Element, New_Item) > 0, "Bad Insertion 0");
+            end if;
             return;
          else
             Free (Z.Forward);
@@ -317,7 +321,7 @@ package body Skip_List is
       end if;
       --  Case 2.
       --  NOTE Hint, Try to prepend
-      --  |-> Z --> X
+      --  |-> Z --> X --> ...
       if C > 0 then
          Z.Forward (1) := X;
          R := Compare_Exchange (Container.Skip (1)'Unrestricted_Access, X, Z);
@@ -331,6 +335,9 @@ package body Skip_List is
             begin
                Precedings.all := (others => null);
                Linker.Link (Container, Z, Precedings);
+               Pragma Assert (Compare (X.Element, New_Item) > 0, "Bad Insertion -3");
+               Pragma Assert (Compare (Z.Element, New_Item) = 0, "Bad Insertion -2");
+               Pragma Assert (Compare (X.Forward (0).Element, New_Item) < 0, "Bad Insertion -1");
             end;
             return;
          else
@@ -407,6 +414,9 @@ package body Skip_List is
                Position := (Container'Unchecked_Access, Y);
                Free (Precedings);
                goto FreeZ;
+            elsif Compare (Y.Element, New_Item) < 0 then
+               X := Y;
+               goto Fourth_Try;
             else
                R := Compare_Exchange (X.Forward (1)'Unrestricted_Access, Y, Z);
                if R then
@@ -423,11 +433,12 @@ package body Skip_List is
                   Container.Length := Container.Length + 1;
                   Position := Cursor'(Container'Unrestricted_Access, Z);
                   Linker.Link (Container, Z, Precedings);
-                  Pragma Assert (Compare (Z.Forward (0).Element,  New_Item) > 0, "Bad Insertion");
+                  Pragma Assert (Compare (Z.Element, New_Item) = 0, "Bad Insertion 1");
+                  Pragma Assert (Compare (Z.Forward (0).Element, New_Item) < 0, "Bad Insertion 2");
                   return;
                else
-                  Ada.Text_IO.Put_Line ("Goto Third_Try");
-                  goto Third_Try;
+                  Ada.Text_IO.Put_Line ("Goto Fourth_Try");
+                  goto Fourth_Try;
                end if;
             end if;
          else  --  Y = null
@@ -436,11 +447,12 @@ package body Skip_List is
                Container.Length := Container.Length + 1;
                Position := Cursor'(Container'Unrestricted_Access, Z);
                Linker.Link (Container, Z, Precedings);
-               Pragma Assert (Compare (Z.Forward (0).Element,  New_Item) > 0, "Bad Insertion");
+               Pragma Assert (Compare (Z.Element, New_Item) = 0, "Bad Insertion 3");
+               Pragma Assert (Compare (Z.Forward (0).Element,  New_Item) < 0, "Bad Insertion 4");
                return;
             else
-               Ada.Text_IO.Put_Line ("Goto Third_Try 2");
-               goto Third_Try;
+               Ada.Text_IO.Put_Line ("Goto Fourth_Try 2");
+               goto Fourth_Try;
             end if;
          end if;
       end;
@@ -792,9 +804,8 @@ package body Skip_List is
             Put (" -> " &
             To_String (Container.Skip (j).Element) & ":f");
             Put (j, Width => 0);
-            Put (" [];");
+            Put_Line (" [];");
          end if;
-         New_Line;
       end loop;
       --  traverse and draw nodes
       X := Container.Skip (1);
@@ -822,9 +833,8 @@ package body Skip_List is
                Put (" -> " &
                To_String (X.Forward (j).Element) & ":f");
                Put (j, Width => 0);
-               Put (" [];");
+               Put_Line (" [];");
             end if;
-            New_Line;
          end loop;
          X := X.Forward (1);
       end loop;
