@@ -14,8 +14,6 @@ I do tests on Gentoo GNU/Linux with my Laptop (Lenovo Y500 i7-3630QM).
 
 Valgrind shows no memory leak, but some "still reachable" from task allocation.
 
-See skiplistdri
-
 Design
 ========
 1. CF insertsion
