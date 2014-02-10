@@ -22,6 +22,7 @@ package body Skip_List is
       (Dest : access Node_Access; Expetected, Desired : Node_Access)
       return Boolean with Inline_Always => True;
 
+   --  TODO This only works for 64bits word size.
    function Compare_Exchange
       (Dest : access Node_Access; Expetected, Desired : Node_Access)
       return Boolean is
@@ -67,8 +68,9 @@ package body Skip_List is
    -------------
    --  Linker --
    -------------
+   --  TODO Per-Task
    protected Linker is
-      entry  Link (Container  : in out List;
+      procedure  Link (Container  : in out List;
                    Node       : not null Node_Access;
                    P          : in out Node_Array_Access);
    private
@@ -77,10 +79,11 @@ package body Skip_List is
 
    --  FIXME Incorrect result in Multi-tasking
    protected body Linker is
-      entry Link (Container  : in out List;
+      procedure  Link (Container  : in out List;
                   Node       : not null Node_Access;
                   P          : in out Node_Array_Access)
-      when not Busy is
+    --   when not Busy
+      is
          X, Y : Node_Access := null;
          R    : Boolean;
          C    : Integer;
@@ -327,6 +330,7 @@ package body Skip_List is
          R := Compare_Exchange (Container.Skip (1)'Unrestricted_Access, X, Z);
          if R then
             R := Compare_Exchange (X.Forward (0)'Unrestricted_Access, null, Z);
+            Pragma Assert (R, "XXXXXX");
             Container.Length := Container.Length + 1;
             Position := Cursor'(Container'Unrestricted_Access, Z);
             declare
@@ -337,7 +341,7 @@ package body Skip_List is
                Linker.Link (Container, Z, Precedings);
                Pragma Assert (Compare (X.Element, New_Item) > 0, "Bad Insertion -3");
                Pragma Assert (Compare (Z.Element, New_Item) = 0, "Bad Insertion -2");
-               Pragma Assert (Compare (X.Forward (0).Element, New_Item) < 0, "Bad Insertion -1");
+               Pragma Assert (Compare (X.Forward (0).Element, New_Item) = 0, "Bad Insertion -1");
             end;
             return;
          else
