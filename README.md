@@ -1,37 +1,41 @@
-Skip List
+About
 =========
-This is a Lock-free skip list implementation in ada, with RM interface.
+This is a Lock-free **Skip list** implemented in **Ada**, with RM interface.
 
 Author
-======
+------
 颜烈彬
 
-Status
-======
-*Alpha*
+License
+-------
+GPL3
 
-I do tests on Gentoo GNU/Linux with my Laptop (Lenovo Y500 i7-3630QM).
+Status
+------
+*Pre-Alpha*
+
+Env := Gentoo GNU/Linux & Lenovo Y500 i7-3630QM.
 
 Valgrind shows no memory leak, but some "still reachable" from task allocation.
 
 Design
 ========
-1. CF insertsion
 
-In "*A contention-friendly, non-blocking skip list*", Crain, Tyler et al, shows that
-one can play skip-list insertion in two stages :
+###Two-step insertion
 
-    1. Eager abstract modification
-    2. Lazy selective structural adaptation
+In "*A contention-friendly, non-blocking skip list*", Crain, Tyler et al, show that
+one can play insertion and removal for skip list in two stages :
 
-And one may think it as a Doubly linked list (DLL) insertion with some singly Linked list (SLL) insertions.
-The virtue is that SLL insertions can be scheduled to do later, which makes it wait-free.
+1. Eager abstract modification
+1. Lazy selective structural adaptation
 
-2. Non-Removal
+The fact is that, without stage 2, this skip list becomes a simple linked list!
 
-As LevelDB does and also mentioned in "*A contention-friendly, non-blocking skip list*", one may let Nodes never be freed physically.
+However, I don't employ IndexItem.
 
-In our designe, to remove a node is to simply decrement its Visited. A node is invalid if its Visited is 0.
+###Logical-Removal
+
+Removal of linked list is relevant to the ABA problem. I don't resolve it here. As LevelDB does, I just provide logical removal.
 
 However, there is an issue. If there are many nodes get removed and never get reused, then they become garbage!
 
@@ -50,6 +54,3 @@ References
     1. A contention-friendly, non-blocking skip list [2012]
     1. No Hot Spot Non-Blocking Skip List [2013]
 
-License
-=======
-GPL3
