@@ -7,6 +7,11 @@ procedure skiplistdriver is
       record
         K, V : Integer;
       end record;
+   function Image (E : Element) return String;
+   function Image (E : Element) return String is
+   begin
+      return  Integer'Image (E.K);
+   end Image;
 
    function Compare (Left, Right : Element) return Integer;
    function Compare (Left, Right : Element) return Integer is
@@ -19,20 +24,42 @@ procedure skiplistdriver is
    skiplist : List (9);
 
    r, rr : Cursor;
-   c : integer := 0;
+   c : Integer := 0;
 begin
-   for j in 1 .. 2 ** 9 loop
+   for j in  1 .. 2 ** 6 loop
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
-      --  Ada.Text_IO.Put_Line (skiplist.Last_Element.K'Img);
+   end loop;
+
+   Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
+
+   for j in (2**6) + 1 .. 2 ** 7 loop
+      skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
    end loop;
    Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
+
+   for j in (2 ** 8) + 1 .. 2 ** 9 loop
+      skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
+   end loop;
+   Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
+
+   skiplist.Vet (Image'Access);
+   --  skiplist.draw (Image'Access);
+   for j in (2 ** 7) + 1 .. 2 ** 8 loop
+      skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
+   end loop;
+
+   Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
+   --  skiplist.Vet (Image'Access);
+   --  skiplist.draw (Image'Access);
+
    for j in -(2 ** 5) .. -1 loop
       skiplist.Insert (Element'(j, (j - 2 ** 9) ** 2));
    end loop;
    Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
    r := skiplist.First;
    Ada.Text_IO.Put_Line ("Done Insert");
-   Ada.Text_IO.Put_Line (skiplist.First_Element.K'Img & skiplist.First_Element.V'Img);
+   Ada.Text_IO.Put_Line
+      (skiplist.First_Element.K'Img & skiplist.First_Element.V'Img);
    Ada.Text_IO.Flush;
    Ada.Text_IO.Put_Line ("Iterate 1");
    for j in skiplist.Iterate loop
@@ -64,4 +91,6 @@ begin
    end loop;
 
    Ada.Text_IO.Put_Line ("Length " & skiplist.Length'Img);
+   skiplist.Vet (Image'Access);
+   skiplist.Draw (Image'Access);
 end skiplistdriver;
