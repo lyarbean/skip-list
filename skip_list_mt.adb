@@ -68,14 +68,14 @@ procedure Skip_List_MT is
    W5 : Worker (5);
    W6 : Worker (6);
    W7 : Worker (7);
-   W8 : Worker (8);
-   W9 : Worker (1);
-   W10 : Worker (2);
-   W11 : Worker (3);
-   W12 : Worker (4);
-   W13 : Worker (5);
-   W14 : Worker (6);
-   W15 : Worker (7);
+--     W8 : Worker (8);
+--     W9 : Worker (1);
+--     W10 : Worker (2);
+--     W11 : Worker (3);
+--     W12 : Worker (4);
+--     W13 : Worker (5);
+--     W14 : Worker (6);
+--     W15 : Worker (7);
    W16 : Worker (8);
 begin
 
@@ -86,14 +86,14 @@ begin
    W5.Start (P (5));
    W6.Start (P (6));
    W7.Start (P (7));
-   W8.Start (P (8));
-   W9.Start (P (9));
-   W10.Start (P (10));
-   W11.Start (P (11));
-   W12.Start (P (12));
-   W13.Start (P (13));
-   W14.Start (P (14));
-   W15.Start (P (15));
+--     W8.Start (P (8));
+--     W9.Start (P (9));
+--     W10.Start (P (10));
+--     W11.Start (P (11));
+--     W12.Start (P (12));
+--     W13.Start (P (13));
+--     W14.Start (P (14));
+--     W15.Start (P (15));
    W16.Start (P (16));
 
    loop
@@ -146,30 +146,30 @@ begin
    loop
       exit when W7'Terminated;
    end loop;
-   loop
-      exit when W8'Terminated;
-   end loop;
-   loop
-      exit when W9'Terminated;
-   end loop;
-   loop
-      exit when W10'Terminated;
-   end loop;
-   loop
-      exit when W11'Terminated;
-   end loop;
-   loop
-      exit when W12'Terminated;
-   end loop;
-   loop
-      exit when W13'Terminated;
-   end loop;
-   loop
-      exit when W14'Terminated;
-   end loop;
-   loop
-      exit when W15'Terminated;
-   end loop;
+--     loop
+--        exit when W8'Terminated;
+--     end loop;
+--     loop
+--        exit when W9'Terminated;
+--     end loop;
+--     loop
+--        exit when W10'Terminated;
+--     end loop;
+--     loop
+--        exit when W11'Terminated;
+--     end loop;
+--     loop
+--        exit when W12'Terminated;
+--     end loop;
+--     loop
+--        exit when W13'Terminated;
+--     end loop;
+--     loop
+--        exit when W14'Terminated;
+--     end loop;
+--     loop
+--        exit when W15'Terminated;
+--     end loop;
    loop
       exit when W16'Terminated;
    end loop;

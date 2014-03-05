@@ -21,23 +21,28 @@ Valgrind shows no memory leak, but some "still reachable" from task allocation.
 Design
 ========
 
-###Two-step insertion
-
 In "*A contention-friendly, non-blocking skip list*", Crain, Tyler et al, show that
-one can play insertion and removal for skip list in two stages :
+one can do insertion and removal for skip list in two stages :
 
 1. Eager abstract modification
 1. Lazy selective structural adaptation
 
-The fact is that, without stage 2, this skip list becomes a simple linked list!
+The fact is that, skip list is a multi-level linked list! One can link a node to list level by level.
+However, obviously, *Lazy selective structural adaptation (LSSA)* takes more time than *Eager abstract modification (EAM)*.
+If let a task to handle all LSSA, then all EAM tasks will block on the LSSA entry. But if to empoly more tasks, then how many are enough?
+So, I don't do two-step insertion.
 
-However, I don't employ IndexItem.
+What about Removal? Removal of linked list is vulnerable to the ABA problem. Only DCAS can resolve, however, DCAS is unavailable.
 
-###Logical-Removal
+As skip list is used for rare-removal situation, then logical removal may be enough.
 
-Removal of linked list is relevant to the ABA problem. I don't resolve it here. As LevelDB does, I just provide logical removal.
+Anyway, nodes removed but never reused are garbage, so I consider to introduce a task to remove them physically, lazily!
 
-However, there is an issue. If there are many nodes get removed and never get reused, then they become garbage!
+Interface
+=========
+The spec is similar to Ada RM's Ada.Containers'.
+
+As Cursor is not controlled, one may have a valid cursor to a node, then later delete that node, and then call Element to the cursor, which gives you OMG! Well, Iterator in C++ has the same issue! Any solution? No, I don't have!
 
 References
 ==========
@@ -54,3 +59,4 @@ References
     1. A contention-friendly, non-blocking skip list [2012]
     1. No Hot Spot Non-Blocking Skip List [2013]
 
+4. LevelDB

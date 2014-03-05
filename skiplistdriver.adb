@@ -78,7 +78,7 @@ begin
 
    while r /= No_Cursor loop
       rr := Next (r);
-      exit when SL.Element (r).K = 2000;
+      exit when SL.Element (r).K = 100;
       skiplist.Delete (r);
       c := c + 1;
       r := rr;

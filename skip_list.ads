@@ -117,7 +117,7 @@ private
    type Node_Array_Access is access all Node_Array;
 
    type Node_Type is record
-      Visited : aliased B4;   -- B8?
+      Visited : aliased B4;
       Forward : Node_Array_Access;
       Element : aliased Element_Type;
    end record;

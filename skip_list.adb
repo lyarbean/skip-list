@@ -64,106 +64,94 @@ package body Skip_List is
    end Finalize;
 
    -------------
-   --  Linker --
+   --  Link --
    -------------
-   --  TODO Per-Task
-   protected Linker is
-      procedure  Link (Container  : in out List;
-                   Node       : not null Node_Access;
-                   P          : in out Node_Array_Access);
-   private
-      Busy : Boolean := False;
-   end Linker;
+   procedure  Link (Container : in out List;
+      Node : not null Node_Access; P : in out Node_Array_Access) with Inline;
 
-   --  FIXME Incorrect result in Multi-tasking
-   protected body Linker is
-      procedure  Link (Container  : in out List;
-                  Node       : not null Node_Access;
-                  P          : in out Node_Array_Access)
-      is
-         X, Y : Node_Access := null;
-         R    : Boolean;
-         C    : Integer;
-      begin
-         pragma Assert (P /= null);
-         if Node.Forward'Last = 1 then
-            Free (P);
-            return;
-         end if;
-         Busy := True;
-         for j in reverse 2 .. Node.Forward'Last loop
-            <<Try>>
-            X := null;
-            if P (j) = null then
-               R := True;
-               X := Container.Skip (j);
-               if X = null then
-                  R := Compare_Exchange
-                     (Container.Skip (j)'Unrestricted_Access, X, Node);
-                  if not R then
-                     pragma Assert
-                        (Container.Skip (j) /= null, "Container.Skip");
-                     X := Container.Skip (j);
-                  else
-                     goto Next_J;
-                  end if;
-               end if;
-            else
-               X := P (j);
-            end if;
-
-            if X /= null then
-               C := Compare (X.Element, Node.Element);
-
-               if C = 0 then
-                  if X /= Node then
-                     raise Program_Error with "Duplicated Element";
-                  else
-                     Ada.Text_IO.Put_Line ("Bug, overlap");
-                     goto Next_J;
-                  end if;
-               end if;
-
-               if C > 0 then
-                  R := Compare_Exchange
-                     (Container.Skip (j)'Unrestricted_Access, X, Node);
-                  Node.Forward (j) := X;
+   procedure  Link (Container : in out List;
+      Node : not null Node_Access; P : in out Node_Array_Access)
+   is
+      X, Y : Node_Access := null;
+      R    : Boolean;
+      C    : Integer;
+   begin
+      pragma Assert (P /= null);
+      if Node.Forward'Last = 1 then
+         Free (P);
+         return;
+      end if;
+      for j in reverse 2 .. Node.Forward'Last loop
+         <<Try>>
+         X := null;
+         if P (j) = null then
+            R := True;
+            X := Container.Skip (j);
+            if X = null then
+               R := Compare_Exchange
+                  (Container.Skip (j)'Unrestricted_Access, X, Node);
+               if not R then
+                  pragma Assert
+                     (Container.Skip (j) /= null, "Container.Skip");
+                  X := Container.Skip (j);
+               else
                   goto Next_J;
                end if;
-
-               --  C < 0
-               R := False;
-               loop
-                  Y := X.Forward (j);
-                  while Y /= null loop
-                     C := Compare (Y.Element, Node.Element);
-                     if C = 0 then
-                        raise Program_Error with "Duplicated Element";
-                     end if;
-                     exit when C > 0;
-                     X := Y;
-                     Y := X.Forward (j);
-                  end loop;
-
-                  R := Compare_Exchange
-                     (X.Forward (j)'Unrestricted_Access, Y, Node);
-                  if not R then
-                     goto Try;
-                  else
-                     Node.Forward (j) := Y;
-                  end if;
-                  exit when R;
-               end loop;
             end if;
-            <<Next_J>>
-         end loop;
-         if Container.Current_Level < Node.Forward'Last then
-            Container.Current_Level := Node.Forward'Last;
+         else
+            X := P (j);
          end if;
-         Free (P);
-         Busy := False;
-      end Link;
-   end Linker;
+
+         if X /= null then
+            C := Compare (X.Element, Node.Element);
+
+            if C = 0 then
+               if X /= Node then
+                  raise Program_Error with "Duplicated Element";
+               else
+                  Ada.Text_IO.Put_Line ("Bug, overlap");
+                  goto Next_J;
+               end if;
+            end if;
+
+            if C > 0 then
+               R := Compare_Exchange
+                  (Container.Skip (j)'Unrestricted_Access, X, Node);
+               Node.Forward (j) := X;
+               goto Next_J;
+            end if;
+
+            --  C < 0
+            R := False;
+            loop
+               Y := X.Forward (j);
+               while Y /= null loop
+                  C := Compare (Y.Element, Node.Element);
+                  if C = 0 then
+                     raise Program_Error with "Duplicated Element";
+                  end if;
+                  exit when C > 0;
+                  X := Y;
+                  Y := X.Forward (j);
+               end loop;
+
+               R := Compare_Exchange
+                  (X.Forward (j)'Unrestricted_Access, Y, Node);
+               if not R then
+                  goto Try;
+               else
+                  Node.Forward (j) := Y;
+               end if;
+               exit when R;
+            end loop;
+         end if;
+         <<Next_J>>
+      end loop;
+      if Container.Current_Level < Node.Forward'Last then
+         Container.Current_Level := Node.Forward'Last;
+      end if;
+      Free (P);
+   end Link;
 
    function Activate (Node : Node_Access) return Boolean;
    function Activate (Node : Node_Access) return Boolean is
@@ -171,16 +159,18 @@ package body Skip_List is
       B : B4;
    begin
       B := Atomic_Load_4 (Node.Visited'Access);
-      if B < 0 then
-         raise Program_Error with "Node.Visited < 0";
-      end if;
       if B = 0 then
          R := Atomic_Compare_Exchange_4
-            (Node.Visited'Access, B'Unrestricted_Access, 1);
-         pragma Assert (R, "Activate  Node");
+            (Node.Visited'Access, B'Unrestricted_Access, (2**31) + 1);
+         pragma Assert (R, "Fail to activate Node");
+      elsif B <  2 ** 31 then
+         raise Program_Error with "Referenced node Deleted";
+      elsif B = 2 ** 31 then
+         raise Program_Error with "Node present without referencing";
       end if;
-      return (B > 0) or else R;
+      return (B > (2 ** 31)) or else R;
    end Activate;
+
    ----------------
    --  External  --
    ----------------
@@ -198,7 +188,7 @@ package body Skip_List is
       if Position.Node = null then
          return False;
       end if;
-      return Atomic_Load_4 (Position.Node.Visited'Access) > 0;
+      return Atomic_Load_4 (Position.Node.Visited'Access) > (2**31);
    end Is_Valid;
 
    function "=" (Left, Right : List) return Boolean is
@@ -216,7 +206,6 @@ package body Skip_List is
       return Container.Skip (1) = null;
    end Is_Empty;
 
-   --  No Finalization, just reset all Visited
    procedure Clear (Container : in out List) is
       X : Node_Access;
    begin
@@ -268,7 +257,7 @@ package body Skip_List is
       X := Container.Skip (1);
       --  When Container is empty
       if X = null then
-         Z := new Node_Type'(1, null, New_Item);
+         Z := new Node_Type'(1 + (2 ** 31), null, New_Item);
          Z.Forward := new Node_Array (0 .. 1);
          Z.Forward.all := (others => null);
 
@@ -304,7 +293,7 @@ package body Skip_List is
       end if;
 
       --  Allocate new Node
-      Z := new Node_Type'(1, null, New_Item);
+      Z := new Node_Type'((2**31) + 1, null, New_Item);
       Z.Forward := new Node_Array (0 .. New_Level);
       Z.Forward.all := (others => null);
 
@@ -335,7 +324,7 @@ package body Skip_List is
                := new Node_Array (1 .. Container.Level);
             begin
                Precedings.all := (others => null);
-               Linker.Link (Container, Z, Precedings);
+               Link (Container, Z, Precedings);
                pragma Assert
                   (Compare (X.Element, New_Item) > 0, "Bad Insertion -3");
                pragma Assert
@@ -439,7 +428,7 @@ package body Skip_List is
                   end if;
                   Container.Length := Container.Length + 1;
                   Position := Cursor'(Container'Unrestricted_Access, Z);
-                  Linker.Link (Container, Z, Precedings);
+                  Link (Container, Z, Precedings);
                   pragma Assert
                      (Compare (Z.Element, New_Item) = 0, "Bad Insertion 1");
                   pragma Assert
@@ -456,10 +445,10 @@ package body Skip_List is
             if R then
                Container.Length := Container.Length + 1;
                Position := Cursor'(Container'Unrestricted_Access, Z);
-               Linker.Link (Container, Z, Precedings);
-               Pragma Assert
+               Link (Container, Z, Precedings);
+               pragma Assert
                   (Compare (Z.Element, New_Item) = 0, "Bad Insertion 3");
-               Pragma Assert
+               pragma Assert
                   (Compare (Z.Forward (0).Element,  New_Item) < 0,
                   "Bad Insertion 4");
                return;
@@ -481,9 +470,9 @@ package body Skip_List is
    begin
       loop
          B := Atomic_Load_4 (Node.Visited'Access);
-         if B > 0 then
+         if B > (2 ** 31) then
             R := Atomic_Compare_Exchange_4
-               (Node.Visited'Access, B'Unrestricted_Access, B - 1);
+               (Node.Visited'Access, B'Unrestricted_Access, (B xor (2**31)) - 1);
          else
             return False;
          end if;
@@ -547,7 +536,7 @@ package body Skip_List is
             do
                loop
                   B := Atomic_Load_4 (Start.Node.Visited'Access);
-                  pragma Assert (B >= 0, "Node is invalid");
+                  pragma Assert (B > 2**31, "Node is invalid");
                   R := Atomic_Compare_Exchange_4
                      (Start.Node.Visited'Access, B'Unrestricted_Access, B + 1);
                   exit when R;
@@ -567,12 +556,11 @@ package body Skip_List is
       declare
          X : Node_Access := Container.Skip (1);
       begin
-         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+         --  TODO X.Visited = 2 ** 31 is exception
+         while Atomic_Load_4 (X.Visited'Access) < (2**31)  loop
             X := X.Forward (1);
             exit when X = null;
          end loop;
-         --  TODO Visit
-         --  B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
          return Cursor'(Container'Unrestricted_Access, X);
       end;
    end First;
@@ -587,7 +575,7 @@ package body Skip_List is
          X : Node_Access := Container.Skip (1);
       begin
          loop
-            exit when Atomic_Load_4 (X.Visited'Access) /= 0;
+            exit when Atomic_Load_4 (X.Visited'Access) > (2**31);
             X := X.Forward (1);
             exit when X = null;
          end loop;
@@ -609,7 +597,7 @@ package body Skip_List is
       declare
          X : Node_Access := Container.Skip (0);
       begin
-         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+         while not (Atomic_Load_4 (X.Visited'Access) > (2**31)) loop
             X := X.Forward (0);
             exit when X = null;
          end loop;
@@ -626,7 +614,7 @@ package body Skip_List is
       declare
          X : Node_Access := Container.Skip (0);
       begin
-         while Atomic_Load_4 (X.Visited'Access) = 0 loop
+         while not (Atomic_Load_4 (X.Visited'Access) > (2**31)) loop
             X := X.Forward (0);
             exit when X = null;
          end loop;
@@ -647,7 +635,7 @@ package body Skip_List is
       X := X.Forward (1);
 
       while X /= null loop
-         exit when Atomic_Load_4 (X.Visited'Access) /= 0;
+         exit when Atomic_Load_4 (X.Visited'Access) > (2**31);
          X := X.Forward (1);
       end loop;
 
@@ -655,7 +643,7 @@ package body Skip_List is
          return No_Cursor;
       end if;
 
-      if Atomic_Load_4 (X.Visited'Access) /= 0 then
+      if Atomic_Load_4 (X.Visited'Access) > (2**31) then
          return Cursor'(Position.Container, X);
       end if;
 
@@ -677,7 +665,7 @@ package body Skip_List is
       X := X.Forward (0);
 
       while X /= null loop
-         exit when Atomic_Load_4 (X.Visited'Access) /= 0;
+         exit when Atomic_Load_4 (X.Visited'Access) > (2**31);
          X := X.Forward (0);
       end loop;
 
@@ -685,7 +673,7 @@ package body Skip_List is
          return No_Cursor;
       end if;
 
-      if Atomic_Load_4 (X.Visited'Access) /= 0 then
+      if Atomic_Load_4 (X.Visited'Access) > (2**31) then
          return Cursor'(Position.Container, X);
       end if;
 
@@ -711,15 +699,13 @@ package body Skip_List is
       end if;
 
       if X.Element = Item then
-         if  Atomic_Load_4 (X.Visited'Access) > 0 then
-            --  TODO Visit
-            --  B := Atomic_Fetch_Add_4 (X.Visited'Access, 1);
+         if  Atomic_Load_4 (X.Visited'Access) > (2**31) then
             return Cursor'(Container'Unrestricted_Access, X);
          else
-            --  Node is tired
             return No_Cursor;
          end if;
       end if;
+
       for j in reverse 1 .. Container.Current_Level loop
          loop
             exit when j not in X.Forward'Range;
@@ -729,7 +715,8 @@ package body Skip_List is
          end loop;
       end loop;
 
-      if X.Element = Item and then Atomic_Load_4 (X.Visited'Access) > 0 then
+      if X.Element = Item and then
+         (Atomic_Load_4 (X.Visited'Access) > (2**31)) then
          return Cursor'(Container'Unrestricted_Access, X);
       end if;
       return No_Cursor;
@@ -749,7 +736,7 @@ package body Skip_List is
          begin
                loop
                   B := Atomic_Load_4 (Object.Node.Visited'Access);
-                  pragma Assert (B >= 1, "Node is invalid");
+                  pragma Assert (B > 2 ** 31 + 1, "Node is invalid");
                   R := Atomic_Compare_Exchange_4
                      (Object.Node.Visited'Access, B'Access, B - 1);
                   exit when R;
@@ -824,10 +811,10 @@ package body Skip_List is
       X := Container.Skip (1);
       while X /= null loop
          Put (To_String (X.Element) & " [label =""");
-         if X.Visited = 0 then
-            Put ("-|");
+         if X.Visited < 2 ** 31 then
+            Put (B4'Image (X.Visited) & "-|");
          else
-            Put ("+|");
+            Put (B4'Image (X.Visited - 2 ** 31) & "+|");
          end if;
          Put (To_String (X.Element));
          for j in X.Forward'Range loop
@@ -837,7 +824,7 @@ package body Skip_List is
          end loop;
          Put_Line (""" shape =""record""];");
          for j in X.Forward'Range loop
-            if X.Forward (j) /= null then
+            if j /= 0 and then X.Forward (j) /= null then
                Put (To_String (X.Element) & ":f");
                Put (j, Width => 0);
                Put (" -> " &
