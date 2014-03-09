@@ -175,6 +175,15 @@ begin
    end loop;
    skiplist.Vet (Image'Access);
 
+   for c of skiplist loop
+      if c.K < 100 then
+         Ada.Text_IO.Put_Line (c.K'Img);
+      end if;
+      -- N.B. No Variable_Indexing provided
+      --   C.K := C.K + 1;
+      exit when c.K > 200;
+   end loop;
+   skiplist.Vet (Image'Access);
    --  Dot may not be able to handle so many nodes
    if L < 12 then
       skiplist.Draw (Image'Access);
