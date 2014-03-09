@@ -1,4 +1,5 @@
 package Atomic_Value is
+   pragma Preelaborate;
    type B4 is mod 2 ** 32 with Size => 32;
    --  pragma Atomic (B4);
    type B8 is mod 2 ** 64 with Size => 64;
