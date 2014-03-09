@@ -14,7 +14,7 @@ Status
 ------
 *Pre-Alpha*
 
-Env := Gentoo GNU/Linux & Lenovo Y500 i7-3630QM.
+Env := Gentoo GNU/Linux & i7-3630QM.
 
 Valgrind shows no memory leak, but some "still reachable" from task allocation.
 
@@ -30,19 +30,29 @@ one can do insertion and removal for skip list in two stages :
 The fact is that, skip list is a multi-level linked list! One can link a node to list level by level.
 However, obviously, *Lazy selective structural adaptation (LSSA)* takes more time than *Eager abstract modification (EAM)*.
 If let a task to handle all LSSA, then all EAM tasks will block on the LSSA entry. But if to empoly more tasks, then how many are enough?
-So, I don't do two-step insertion.
 
 What about Removal? Removal of linked list is vulnerable to the ABA problem. Only DCAS can resolve, however, DCAS is unavailable.
 
 As skip list is used for rare-removal situation, then logical removal may be enough.
 
-Anyway, nodes removed but never reused are garbage, so I consider to introduce a task to remove them physically, lazily!
+Thus
+
+1. No two-step insertion
+2. No Physical removal!
+
+
+
+N.B. Nodes removed but never reused are garbage
 
 Interface
 =========
 The spec is similar to Ada RM's Ada.Containers'.
 
-As Cursor is not controlled, one may have a valid cursor to a node, then later delete that node, and then call Element to the cursor, which gives you OMG! Well, Iterator in C++ has the same issue! Any solution? No, I don't have!
+
+No Variable_Indexing provided, because Variable_Indexing can change Element and then violate skip list's structure.
+
+Please don't use cursor if you can, try "for x of y loop" instead.
+As Logical removal is used, all cursors are valid. :-)
 
 References
 ==========
