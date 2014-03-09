@@ -36,7 +36,7 @@ package body Skip_List is
    procedure Initialize (Container : in out List) is
    begin
       NFR.Reset (G);
-      Container.Skip          := new Node_Array (0 .. Container.Level);
+      Container.Skip          := new Node_Array (0 .. Container.Max_Level);
       Container.Skip.all      := (others => null);
       Container.Current_Level := 0;
       Container.Length        := 0;
@@ -288,8 +288,8 @@ package body Skip_List is
          New_Level := New_Level + 1;
       end loop Random_Level;
 
-      if New_Level > Container.Level then
-         New_Level := Container.Level;
+      if New_Level > Container.Max_Level then
+         New_Level := Container.Max_Level;
       end if;
 
       --  Allocate new Node
@@ -321,7 +321,7 @@ package body Skip_List is
             Position := Cursor'(Container'Unrestricted_Access, Z);
             declare
                Precedings : Node_Array_Access
-               := new Node_Array (1 .. Container.Level);
+               := new Node_Array (1 .. Container.Max_Level);
             begin
                Precedings.all := (others => null);
                Link (Container, Z, Precedings);
@@ -359,7 +359,7 @@ package body Skip_List is
       declare
          Precedings : Node_Array_Access;
       begin
-         Precedings := new Node_Array (1 .. Container.Level);
+         Precedings := new Node_Array (1 .. Container.Max_Level);
          Precedings.all := (others => null);
          for j in reverse 1 .. X.Forward'Last loop
             loop
@@ -770,6 +770,52 @@ package body Skip_List is
       end if;
       return  Previous (Position);
    end Previous;
+
+   -----------------
+   --  Reference  --
+   -----------------
+
+   procedure Adjust (Control : in out Reference_Control_Type) is
+   begin
+      if Control.Node /= null then
+         --  TODO Atomic
+         Control.Node.Visited := Control.Node.Visited + 1;
+      end if;
+   end Adjust;
+
+   procedure Finalize (Control : in out Reference_Control_Type) is
+   begin
+      if Control.Node /= null then
+         --  TODO Atomic
+         Control.Node.Visited := Control.Node.Visited - 1;
+      end if;
+   end Finalize;
+
+   function Constant_Reference (Container : aliased List; Position : Cursor)
+      return Constant_Reference_Type is
+   begin
+      return R : constant Constant_Reference_Type :=
+         (Element => Position.Node.Element'Unrestricted_Access,
+         Control => (Controlled with Position.Node))
+         do
+            Position.Node.Visited := Position.Node.Visited + 1;
+      end return;
+   end Constant_Reference;
+
+   --   function Reference (Container : aliased in out List; Position : Cursor)
+   --      return Reference_Type is
+   --   begin
+   --      return R : constant Reference_Type :=
+   --         (Element => Position.Node.Element'Unrestricted_Access,
+   --         Control => (Controlled with Position.Node))
+   --         do
+   --            Position.Node.Visited := Position.Node.Visited + 1;
+   --      end return;
+   --   end Reference;
+
+   -------------
+   --  TOOLS  --
+   -------------
 
    procedure Draw (Container : List;
       To_String : access function (E : Element_Type) return String) is

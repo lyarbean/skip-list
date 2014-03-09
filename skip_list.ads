@@ -1,4 +1,3 @@
-
 pragma License (GPL);
 pragma Ada_2012;
 with Ada.Iterator_Interfaces;
@@ -10,8 +9,8 @@ generic
 
 package Skip_List is
    subtype Level_type is Integer range 1 .. 63;
-   type List (Level : Level_type) is tagged limited private with
-      --  Constant_Indexing => Constant_Reference,
+   type List (Max_Level : Level_type := 1) is tagged limited private with
+      Constant_Indexing => Constant_Reference,
       --  Variable_Indexing => Reference,
       Default_Iterator  => Iterate,
       Iterator_Element  => Element_Type;
@@ -96,6 +95,24 @@ package Skip_List is
    --  procedure Iterate
    --     (Container : List;
    --     Process : not null access procedure (Position : Cursor));
+
+   type Constant_Reference_Type
+      (Element : not null access constant Element_Type) is private
+      with Implicit_Dereference => Element;
+
+   --  type Reference_Type
+   --     (Element : not null access Element_Type) is private
+   --     with Implicit_Dereference => Element;
+
+   function Constant_Reference
+      (Container : aliased List; Position : Cursor)
+      return Constant_Reference_Type;
+   pragma Inline (Constant_Reference);
+
+   --  function Reference (Container : aliased in out List; Position : Cursor)
+   --     return Reference_Type;
+   --  pragma Inline (Reference);
+
    procedure Vet (Container : List;
       To_String : access function (E : Element_Type) return String);
    procedure Draw (Container : List;
@@ -122,12 +139,12 @@ private
       Element : aliased Element_Type;
    end record;
 
-   type List (Level : Level_type) is new Limited_Controlled with
+   type List (Max_Level : Level_type := 1) is new Limited_Controlled with
       record
          Skip          : Node_Array_Access;
-         Length        : Natural;
+         Length        : Natural := 0;
          pragma Atomic (Length);
-         Current_Level : Natural;
+         Current_Level : Natural := 0;
          pragma Atomic (Current_Level);
       end record;
 
@@ -142,10 +159,6 @@ private
          Container : List_Access;
          Node      : Node_Access;
       end record;
-
-   Empty_List : constant List :=
-               (Limited_Controlled with 1, null, 0, 0);
-   No_Cursor  : constant Cursor := Cursor'(null, null);
 
    type Iterator is new Limited_Controlled
       and List_Iterator_Interfaces.Reversible_Iterator with
@@ -162,4 +175,34 @@ private
    overriding function Previous
       (Object : Iterator; Position : Cursor) return Cursor;
 
+   Empty_List : constant List :=
+               (Limited_Controlled with 1, null, 0, 0);
+   No_Cursor  : constant Cursor := Cursor'(null, null);
+
+   -----------------
+   --  Reference  --
+   -----------------
+
+   type Reference_Control_Type is new Controlled with
+      record
+          --  Container : List_Access;
+          Node : Node_Access;
+      end record;
+   overriding procedure Adjust (Control : in out Reference_Control_Type);
+   pragma Inline (Adjust);
+
+   overriding procedure Finalize (Control : in out Reference_Control_Type);
+   pragma Inline (Finalize);
+
+   type Constant_Reference_Type
+      (Element : not null access constant Element_Type) is
+      record
+         Control : Reference_Control_Type;
+      end record;
+
+   --  type Reference_Type
+   --     (Element : not null access Element_Type) is
+   --     record
+   --        Control : Reference_Control_Type;
+   --     end record;
 end Skip_List;
