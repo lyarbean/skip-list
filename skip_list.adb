@@ -465,7 +465,7 @@ package body Skip_List is
       loop
          B := Atomic_Load_4 (Node.Visited'Access);
          if B > 2 ** 31 then
-            R := Atomic_Compare_Exchange_4 (Node.Visited'Access, 
+            R := Atomic_Compare_Exchange_4 (Node.Visited'Access,
                     B'Unrestricted_Access, (B xor (2 ** 31)) - 1);
          else
             return False;

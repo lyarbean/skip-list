@@ -9,7 +9,7 @@ generic
 
 package Skip_List is
    subtype Level_type is Integer range 1 .. 63;
-   
+
    --------------
    --  Cursor  --
    --------------
@@ -26,7 +26,7 @@ package Skip_List is
    procedure Query_Element
      (Position : Cursor;
       Process  : not null access procedure (Element : Element_Type)) is null;
-   
+
    ----------------------------
    --  Iterator_Interafaces  --
    ----------------------------
