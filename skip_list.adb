@@ -161,14 +161,14 @@ package body Skip_List is
       B := Atomic_Load_4 (Node.Visited'Access);
       if B = 0 then
          R := Atomic_Compare_Exchange_4
-            (Node.Visited'Access, B'Unrestricted_Access, (2**31) + 1);
+            (Node.Visited'Access, B'Unrestricted_Access, 2 ** 31 + 1);
          pragma Assert (R, "Fail to activate Node");
       elsif B <  2 ** 31 then
          raise Program_Error with "Referenced node Deleted";
       elsif B = 2 ** 31 then
          raise Program_Error with "Node present without referencing";
       end if;
-      return (B > (2 ** 31)) or else R;
+      return (B > 2 ** 31) or else R;
    end Activate;
 
    ----------------
@@ -188,7 +188,7 @@ package body Skip_List is
       if Position.Node = null then
          return False;
       end if;
-      return Atomic_Load_4 (Position.Node.Visited'Access) > (2**31);
+      return Atomic_Load_4 (Position.Node.Visited'Access) > 2 ** 31;
    end Is_Valid;
 
    function "=" (Left, Right : List) return Boolean is
@@ -257,7 +257,7 @@ package body Skip_List is
       X := Container.Skip (1);
       --  When Container is empty
       if X = null then
-         Z := new Node_Type'(1 + (2 ** 31), null, New_Item);
+         Z := new Node_Type'(2 ** 31 + 1, null, New_Item);
          Z.Forward := new Node_Array (0 .. 1);
          Z.Forward.all := (others => null);
 
@@ -293,7 +293,7 @@ package body Skip_List is
       end if;
 
       --  Allocate new Node
-      Z := new Node_Type'((2**31) + 1, null, New_Item);
+      Z := new Node_Type'(2 ** 31 + 1, null, New_Item);
       Z.Forward := new Node_Array (0 .. New_Level);
       Z.Forward.all := (others => null);
 
@@ -536,7 +536,7 @@ package body Skip_List is
             do
                loop
                   B := Atomic_Load_4 (Start.Node.Visited'Access);
-                  pragma Assert (B > 2**31, "Node is invalid");
+                  pragma Assert (B > 2 ** 31, "Node is invalid");
                   R := Atomic_Compare_Exchange_4
                      (Start.Node.Visited'Access, B'Unrestricted_Access, B + 1);
                   exit when R;
@@ -635,7 +635,7 @@ package body Skip_List is
       X := X.Forward (1);
 
       while X /= null loop
-         exit when Atomic_Load_4 (X.Visited'Access) > (2**31);
+         exit when Atomic_Load_4 (X.Visited'Access) > 2 ** 31;
          X := X.Forward (1);
       end loop;
 
@@ -643,7 +643,7 @@ package body Skip_List is
          return No_Cursor;
       end if;
 
-      if Atomic_Load_4 (X.Visited'Access) > (2**31) then
+      if Atomic_Load_4 (X.Visited'Access) > 2 ** 31 then
          return Cursor'(Position.Container, X);
       end if;
 
@@ -665,7 +665,7 @@ package body Skip_List is
       X := X.Forward (0);
 
       while X /= null loop
-         exit when Atomic_Load_4 (X.Visited'Access) > (2**31);
+         exit when Atomic_Load_4 (X.Visited'Access) > 2 ** 31;
          X := X.Forward (0);
       end loop;
 
@@ -673,7 +673,7 @@ package body Skip_List is
          return No_Cursor;
       end if;
 
-      if Atomic_Load_4 (X.Visited'Access) > (2**31) then
+      if Atomic_Load_4 (X.Visited'Access) > 2 ** 31 then
          return Cursor'(Position.Container, X);
       end if;
 
@@ -699,7 +699,7 @@ package body Skip_List is
       end if;
 
       if X.Element = Item then
-         if  Atomic_Load_4 (X.Visited'Access) > (2**31) then
+         if  Atomic_Load_4 (X.Visited'Access) > 2 ** 31 then
             return Cursor'(Container'Unrestricted_Access, X);
          else
             return No_Cursor;
@@ -716,7 +716,7 @@ package body Skip_List is
       end loop;
 
       if X.Element = Item and then
-         (Atomic_Load_4 (X.Visited'Access) > (2**31)) then
+         (Atomic_Load_4 (X.Visited'Access) > 2 ** 31) then
          return Cursor'(Container'Unrestricted_Access, X);
       end if;
       return No_Cursor;
