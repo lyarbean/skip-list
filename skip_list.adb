@@ -22,7 +22,7 @@ package body Skip_List is
       (Dest : access Node_Access; Expetected, Desired : Node_Access)
       return Boolean with Inline_Always => True;
 
-   --  TODO This only works for 64bits word size.
+   --  TODO This only works for 64bits word size, add support for 32bit.
    function Compare_Exchange
       (Dest : access Node_Access; Expetected, Desired : Node_Access)
       return Boolean is
