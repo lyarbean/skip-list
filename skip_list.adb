@@ -240,7 +240,6 @@ package body Skip_List is
       (Container : in out List; New_Item : Element_Type; Position : out Cursor)
    is
       R : Boolean;
-      --  B : B4;
       X, Y, Z : Node_Access;
       pragma Atomic (X);
       pragma Atomic (Y);
@@ -365,7 +364,7 @@ package body Skip_List is
             if Compare (X.Element, New_Item) < 0 then
                Precedings (j) := X;
             else
-               Ada.Text_IO.Put_Line ("Someting went wrong");
+               raise Program_Error with "Fail to proccess Precedings on Insert";
             end if;
          end loop;
 
@@ -374,7 +373,7 @@ package body Skip_List is
          for j in 1 .. Z.Forward'Last loop
             if Precedings (j) /= null then
                pragma Assert (Compare (Precedings (j).Element, New_Item) < 0,
-               "BAD Precedings");
+               "Bad Precedings");
                null;
             end if;
          end loop;
@@ -465,9 +464,9 @@ package body Skip_List is
    begin
       loop
          B := Atomic_Load_4 (Node.Visited'Access);
-         if B > (2 ** 31) then
-            R := Atomic_Compare_Exchange_4
-               (Node.Visited'Access, B'Unrestricted_Access, (B xor (2**31)) - 1);
+         if B > 2 ** 31 then
+            R := Atomic_Compare_Exchange_4 (Node.Visited'Access, 
+                    B'Unrestricted_Access, (B xor (2 ** 31)) - 1);
          else
             return False;
          end if;
@@ -503,8 +502,6 @@ package body Skip_List is
 
    function Iterate (Container : List)
       return List_Iterator_Interfaces.Reversible_Iterator'class is
-      B : B4;
-      pragma Unreferenced (B);
    begin
       return It : constant Iterator :=
          Iterator'(Limited_Controlled with
@@ -518,11 +515,9 @@ package body Skip_List is
       R : Boolean := False;
    begin
       if Start = No_Cursor then
-         raise Constraint_Error with
-         "Start position for iterator equals No_Cursor";
+         raise Constraint_Error with "Start equals No_Cursor";
       elsif Start.Container /= Container'Unrestricted_Access then
-         raise Program_Error with
-         "Start cursor of Iterate designates wrong list";
+         raise Program_Error with "Start designates wrong list";
       else
          return It : constant Iterator :=
             Iterator'(Limited_Controlled with
@@ -552,10 +547,13 @@ package body Skip_List is
          X : Node_Access := Container.Skip (1);
       begin
          --  TODO X.Visited = 2 ** 31 is exception
-         while Atomic_Load_4 (X.Visited'Access) < (2**31)  loop
+         while Atomic_Load_4 (X.Visited'Access) < 2 ** 31  loop
             X := X.Forward (1);
             exit when X = null;
          end loop;
+         if X = null then
+            return No_Cursor;
+         end if;
          return Cursor'(Container'Unrestricted_Access, X);
       end;
    end First;
@@ -570,12 +568,12 @@ package body Skip_List is
          X : Node_Access := Container.Skip (1);
       begin
          loop
-            exit when Atomic_Load_4 (X.Visited'Access) > (2**31);
+            exit when Atomic_Load_4 (X.Visited'Access) > 2 ** 31;
             X := X.Forward (1);
             exit when X = null;
          end loop;
          if X = null then
-            raise Program_Error with "No valid element";
+            raise No_Element_Error with "No valid element";
          end if;
          return X.Element;
       end;
@@ -592,10 +590,13 @@ package body Skip_List is
       declare
          X : Node_Access := Container.Skip (0);
       begin
-         while not (Atomic_Load_4 (X.Visited'Access) > (2**31)) loop
+         while not (Atomic_Load_4 (X.Visited'Access) > 2 ** 31) loop
             X := X.Forward (0);
             exit when X = null;
          end loop;
+         if X = null then
+            return No_Cursor;
+         end if;
          return Cursor'(Container'Unrestricted_Access, X);
       end;
    end Last;
@@ -609,12 +610,12 @@ package body Skip_List is
       declare
          X : Node_Access := Container.Skip (0);
       begin
-         while not (Atomic_Load_4 (X.Visited'Access) > (2**31)) loop
+         while not (Atomic_Load_4 (X.Visited'Access) > 2 ** 31) loop
             X := X.Forward (0);
             exit when X = null;
          end loop;
          if X = null then
-            raise Program_Error with "No element valid";
+            raise No_Element_Error with "No element valid";
          end if;
          return X.Element;
       end;
@@ -682,11 +683,9 @@ package body Skip_List is
 
    function Find (Container : List; Item : Element_Type) return Cursor is
       X : Node_Access;
-      B : B4;
-      pragma Unreferenced (B);
    begin
       if Container.Skip (1) = null then
-         raise Constraint_Error with "List is empty";
+         raise No_Element_Error with "List is empty";
       end if;
       X := Container.Skip (1);
       if Compare (X.Element, Item) > 0 then
@@ -726,16 +725,16 @@ package body Skip_List is
    begin
       if Object.Container /= null and then Object.Node /= null then
          declare
+            V : B4 renames Object.Node.Visited;
             B : aliased B4;
             R : Boolean;
          begin
-               loop
-                  B := Atomic_Load_4 (Object.Node.Visited'Access);
-                  pragma Assert (B > 2 ** 31 + 1, "Node is invalid");
-                  R := Atomic_Compare_Exchange_4
-                     (Object.Node.Visited'Access, B'Access, B - 1);
-                  exit when R;
-               end loop;
+            loop
+               B := Atomic_Load_4 (V'Access);
+               pragma Assert (B > 2 ** 31 + 1, "Node is invalid");
+               R := Atomic_Compare_Exchange_4 (V'Access, B'Access, B - 1);
+               exit when R;
+            end loop;
          end;
       end if;
    end Finalize;
@@ -773,16 +772,36 @@ package body Skip_List is
    procedure Adjust (Control : in out Reference_Control_Type) is
    begin
       if Control.Node /= null then
-         --  TODO Atomic
-         Control.Node.Visited := Control.Node.Visited + 1;
+         declare
+            B : B4 renames Control.Node.Visited;
+            C : aliased B4;
+            R : Boolean;
+         begin
+            loop
+               C := Atomic_Load_4 (B'Access);
+               pragma Assert (C > 2 ** 31 + 1, "Node is invalid");
+               R := Atomic_Compare_Exchange_4 (B'Access, C'Access, C + 1);
+               exit when R;
+            end loop;
+         end;
       end if;
    end Adjust;
 
    procedure Finalize (Control : in out Reference_Control_Type) is
    begin
       if Control.Node /= null then
-         --  TODO Atomic
-         Control.Node.Visited := Control.Node.Visited - 1;
+         declare
+            B : B4 renames Control.Node.Visited;
+            C : aliased B4;
+            R : Boolean;
+         begin
+            loop
+               C := Atomic_Load_4 (B'Access);
+               pragma Assert (C > 2 ** 31 + 1, "Node is invalid");
+               R := Atomic_Compare_Exchange_4 (B'Access, C'Access, C - 1);
+               exit when R;
+            end loop;
+         end;
       end if;
    end Finalize;
 
@@ -793,7 +812,18 @@ package body Skip_List is
          (Element => Position.Node.Element'Unrestricted_Access,
          Control => (Controlled with Position.Node))
          do
-            Position.Node.Visited := Position.Node.Visited + 1;
+         declare
+            B : B4 renames Position.Node.Visited;
+            C : aliased B4;
+            R : Boolean;
+         begin
+            loop
+               C := Atomic_Load_4 (B'Access);
+               pragma Assert (C > 2 ** 31 + 1, "Node is invalid");
+               R := Atomic_Compare_Exchange_4 (B'Access, C'Access, C + 1);
+               exit when R;
+            end loop;
+         end;
       end return;
    end Constant_Reference;
 

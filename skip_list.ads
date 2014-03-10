@@ -9,93 +9,74 @@ generic
 
 package Skip_List is
    subtype Level_type is Integer range 1 .. 63;
+   
+   --------------
+   --  Cursor  --
+   --------------
+   type Cursor is private;
+   pragma Preelaborable_Initialization (Cursor);
+
+   function Has_Element (Position : Cursor) return Boolean;
+   function Is_Valid (Position : Cursor) return Boolean;
+   function Element (Position : Cursor) return Element_Type;
+   function Next (Position : Cursor) return Cursor;
+   procedure Next (Position : in out Cursor);
+   function Previous (Position : Cursor) return Cursor;
+   procedure Previous (Position : in out Cursor);
+   procedure Query_Element
+     (Position : Cursor;
+      Process  : not null access procedure (Element : Element_Type)) is null;
+   
+   ----------------------------
+   --  Iterator_Interafaces  --
+   ----------------------------
+   package List_Iterator_Interfaces is new
+     Ada.Iterator_Interfaces (Cursor, Has_Element);
+
+   ------------
+   --  List  --
+   ------------
    type List (Max_Level : Level_type := 1) is tagged limited private with
       Constant_Indexing => Constant_Reference,
       --  Variable_Indexing => Reference,
       Default_Iterator  => Iterate,
       Iterator_Element  => Element_Type;
 
-   type Cursor is private;
-   pragma Preelaborable_Initialization (Cursor);
-
-   Empty_List : constant List;
-
-   No_Cursor : constant Cursor;
-
-   function Has_Element (Position : Cursor) return Boolean;
-   function Is_Valid (Position : Cursor) return Boolean;
-
-   package List_Iterator_Interfaces is new
-     Ada.Iterator_Interfaces (Cursor, Has_Element);
-
    function "=" (Left, Right : List) return Boolean;
-
    function Length (Container : List) return Natural;
-
    function Is_Empty (Container : List) return Boolean;
-
    procedure Clear (Container : in out List);
-
-   function Element (Position : Cursor) return Element_Type;
-
-   procedure Replace_Element
-     (Container : in out List;
-      Position  : Cursor;
-      New_Item  : Element_Type) is null;
-
-   procedure Query_Element
-     (Position : Cursor;
-      Process  : not null access procedure (Element : Element_Type)) is null;
-
-   procedure Update_Element
-     (Container : in out List;
-      Position  : Cursor;
-      Process   : not null access procedure
-                  (Element : in out Element_Type)) is null;
-
    procedure Insert (Container : in out List; New_Item : Element_Type);
-
    procedure Insert
-      (Container : in out List;
-       New_Item  : Element_Type;
-       Position  : out Cursor);
-
+      (Container : in out List; New_Item : Element_Type; Position  : out Cursor);
    procedure Delete (Container : in out List; Position : in out Cursor);
-
    procedure Delete_Last (Container : in out List; Count : Positive := 1);
-
+   function First (Container : List) return Cursor;
+   function First_Element (Container : List) return Element_Type;
+   function Last (Container : List) return Cursor;
+   function Last_Element (Container : List) return Element_Type;
+   function Find (Container : List; Item : Element_Type) return Cursor;
+   function Contains (Container : List; Item : Element_Type) return Boolean;
    function Iterate (Container : List)
       return List_Iterator_Interfaces.Reversible_Iterator'class;
-
    function Iterate (Container : List; Start : Cursor)
       return List_Iterator_Interfaces.Reversible_Iterator'class;
-
-   --  TODO Splice
-
-   function First (Container : List) return Cursor;
-
-   function First_Element (Container : List) return Element_Type;
-
-   function Last (Container : List) return Cursor;
-
-   function Last_Element (Container : List) return Element_Type;
-
-   function Next (Position : Cursor) return Cursor;
-
-   procedure Next (Position : in out Cursor);
-
-   function Previous (Position : Cursor) return Cursor;
-
-   procedure Previous (Position : in out Cursor);
-
-   function Find (Container : List; Item : Element_Type) return Cursor;
-
-   function Contains (Container : List; Item : Element_Type) return Boolean;
 
    --  procedure Iterate
    --     (Container : List;
    --     Process : not null access procedure (Position : Cursor));
 
+   -----------------
+   --  Dev Tools  --
+   -----------------
+   procedure Vet (Container : List;
+      To_String : access function (E : Element_Type) return String);
+   procedure Draw (Container : List;
+      To_String : access function (E : Element_Type) return String);
+
+   ------------------
+   --  References  --
+   ------------------
    type Constant_Reference_Type
       (Element : not null access constant Element_Type) is private
       with Implicit_Dereference => Element;
@@ -113,26 +94,21 @@ package Skip_List is
    --     return Reference_Type;
    --  pragma Inline (Reference);
 
-   procedure Vet (Container : List;
-      To_String : access function (E : Element_Type) return String);
-   procedure Draw (Container : List;
-      To_String : access function (E : Element_Type) return String);
+   ---------------
+   --  Constant --
+   ---------------
+   No_Cursor : constant Cursor;
+   No_Element_Error : exception;
 private
-   pragma Inline (First);
-   pragma Inline (Last);
-   pragma Inline (Next);
-   pragma Inline (Previous);
-
    use Ada.Finalization;
    use Atomic_Value;
+
    type Node_Type;
    type Node_Access is access Node_Type;
-
    type Node_Array is array (Natural range <>) of Node_Access;
    pragma Atomic_Components (Node_Array);
 
    type Node_Array_Access is access all Node_Array;
-
    type Node_Type is record
       Visited : aliased B4;
       Forward : Node_Array_Access;
@@ -142,9 +118,9 @@ private
    type List (Max_Level : Level_type := 1) is new Limited_Controlled with
       record
          Skip          : Node_Array_Access;
-         Length        : Natural := 0;
+         Length        : Natural;
          pragma Atomic (Length);
-         Current_Level : Natural := 0;
+         Current_Level : Natural;
          pragma Atomic (Current_Level);
       end record;
 
@@ -175,8 +151,6 @@ private
    overriding function Previous
       (Object : Iterator; Position : Cursor) return Cursor;
 
-   Empty_List : constant List :=
-               (Limited_Controlled with 1, null, 0, 0);
    No_Cursor  : constant Cursor := Cursor'(null, null);
 
    -----------------
