@@ -206,6 +206,7 @@ package body Skip_List is
       return Container.Skip (1) = null;
    end Is_Empty;
 
+   --  NOTE Don't call Clear if you are accessing the List!
    procedure Clear (Container : in out List) is
       X : Node_Access;
    begin
@@ -219,7 +220,6 @@ package body Skip_List is
       Container.Length := 0;
    end Clear;
 
-   --  User is responsible to call Is_Valid against Position
    function Element (Position : Cursor) return Element_Type is
    begin
       if Position.Node = null then
@@ -227,10 +227,6 @@ package body Skip_List is
       end if;
       return Position.Node.Element;
    end Element;
-
-   --  Replace
-   --  Query
-   --  Update
 
    procedure Insert (Container : in out List; New_Item : Element_Type) is
       Pos : Cursor;
@@ -345,7 +341,6 @@ package body Skip_List is
       --  X ----------> Y := X.F
       --  X -- > Z -- > Y
 
-      --  Find Pivot
       X := null;
       for j in reverse 1 .. Container.Current_Level loop
          if Container.Skip (j) /= null
@@ -906,4 +901,5 @@ package body Skip_List is
          X := X.Forward (1);
       end loop;
    end Vet;
+
 end Skip_List;
