@@ -177,7 +177,7 @@ package body Skip_List is
 
    function Has_Element (Position : Cursor) return Boolean is
    begin
-      if Position.Node = null then
+      if Is_Valid (Position) then
          return False;
       end if;
       return True;
@@ -222,7 +222,7 @@ package body Skip_List is
 
    function Element (Position : Cursor) return Element_Type is
    begin
-      if Position.Node = null then
+      if not Is_Valid (Position) then
          raise Program_Error with "Bad Cursor on Element";
       end if;
       return Position.Node.Element;
