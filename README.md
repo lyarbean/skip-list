@@ -33,30 +33,30 @@ If let a task to handle all LSSA, then all EAM tasks will block on the LSSA entr
 
 What about Removal? Removal of linked list is vulnerable to the ABA problem. Only DCAS can resolve, however, DCAS is unavailable.
 
-As skip list is used for rare-removal situation, then logical removal may be enough.
+As skip list is used for rare-removal situation, like Dictionary, then logical removal may be enough.
 
-Thus
+Thus in this implementation
 
 1. No two-step insertion
-2. No Physical removal!
+2. No physical removal!
 
-
-
-N.B. Nodes removed but never reused are garbage
+N.B. Nodes removed but never reused are garbage, user is responsible to use Read-Write Lock to remove them.
+I consider to add procedure Physical_Delete for high level use.
 
 Interface
 =========
-The spec is similar to Ada RM's Ada.Containers'.
+The spec is akin to Ada RM's Containers.
+However, no Variable_Indexing provided, because Variable_Indexing can change Element and then violate skip list's structure.
+
+Please  try "for x of y loop" instead of cursor. A cursor is easy to be invalid as the node it refers may be removed from the list or Freed.
+In later case, dereference to the node leads to segfault!
+As Logical removal is applied in this implementation, one can call Is_Valid to verify a cursor.
 
 
-No Variable_Indexing provided, because Variable_Indexing can change Element and then violate skip list's structure.
-
-Please don't use cursor if you can, try "for x of y loop" instead.
-As Logical removal is used, all cursors are valid. :-)
 
 References
 ==========
-1. Push, W. Concurrent Maintenance Of Skip Lists [1990]
+1. Pugh, W. Concurrent Maintenance Of Skip Lists [1990]
 
 2. Maurice Herlihy, Yossi Lev, Victor Luchangco, and Nir Shavit
 
